@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum AssetType {
+  STOCK
+  ETF
+  BOND
+  REAL_ESTATE
+  CRYPTO
+  CASH
+  SAVINGS
+  COMMODITY
+  OTHER
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts Account[]
+
+  @@index([email])
+}
+
+model Account {
+  id        String   @id @default(uuid())
+  name      String   // e.g., "Chase Checking", "ING Savings", "MetaMask", "IBKR"
+  type      String?  // e.g., "Bank", "Broker", "Crypto Wallet", "Exchange"
+  currency  Currency @default(EUR)
+  notes     String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets Asset[]
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([type])
+  @@index([userId])
+}
+
+enum Currency {
+  USD
+  EUR
+  GBP
+  CHF
+  JPY
+}
+
+model Asset {
+  id             String    @id @default(uuid())
+  symbol         String
+  name           String
+  type           AssetType
+  quantity       Float
+  purchasePrice  Float?
+  currency       Currency  @default(EUR)
+  currentPrice   Float?
+  priceUpdatedAt DateTime?
+  notes          String?
+  isManualPrice  Boolean   @default(false)
+  accountId      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  priceHistory PriceHistory[]
+  account      Account    @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([type])
+  @@index([currency])
+  @@index([accountId])
+}
+
+model PriceHistory {
+  id         String   @id @default(uuid())
+  assetId    String
+  price      Float
+  quantity   Float
+  totalValue Float
+  currency   Currency
+  recordedAt DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, recordedAt])
+  @@index([recordedAt])
+}
+
+model ExchangeRate {
+  id         String   @id @default(uuid())
+  fromCurrency Currency
+  toCurrency Currency
+  rate       Float
+  fetchedAt  DateTime @default(now())
+
+  @@index([fromCurrency, toCurrency, fetchedAt])
+}
+
+model AppConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
