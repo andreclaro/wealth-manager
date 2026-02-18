@@ -1,6 +1,6 @@
-import { AssetType, Currency, Account } from "@prisma/client";
+import { AssetType, Currency, PortfolioAccount } from "@prisma/client";
 
-export type { Account };
+export type { PortfolioAccount as Account };
 
 export interface AssetWithValue {
   id: string;
@@ -15,7 +15,7 @@ export interface AssetWithValue {
   notes: string | null;
   isManualPrice: boolean;
   accountId: string;
-  account: Account;
+  account: PortfolioAccount;
   createdAt: Date;
   updatedAt: Date;
   totalValue: number;
@@ -31,10 +31,17 @@ export interface PortfolioSummary {
   assetsByCurrency: Record<Currency, { count: number; valueUSD: number; valueEUR: number }>;
 }
 
+export interface AssetHistoryPoint {
+  symbol: string;
+  valueUSD: number;
+  valueEUR: number;
+}
+
 export interface PriceHistoryPoint {
   date: string;
   valueUSD: number;
   valueEUR: number;
+  assets?: AssetHistoryPoint[];
 }
 
 export interface AssetFormData {
@@ -57,7 +64,7 @@ export interface AccountFormData {
   notes?: string;
 }
 
-export interface AccountWithTotals extends Account {
+export interface AccountWithTotals extends PortfolioAccount {
   totalValueUSD: number;
   totalValueEUR: number;
   assets: AssetWithValue[];
@@ -66,6 +73,10 @@ export interface AccountWithTotals extends Account {
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   STOCK: "Stock",
   ETF: "ETF",
+  FUND: "Fund",
+  PPR_FPR: "PPR / FPR",
+  PRIVATE_EQUITY: "Private Equity",
+  P2P: "P2P Lending",
   BOND: "Bond",
   REAL_ESTATE: "Real Estate",
   CRYPTO: "Cryptocurrency",
@@ -86,6 +97,10 @@ export const CURRENCY_LABELS: Record<Currency, string> = {
 export const ASSET_TYPE_COLORS: Record<AssetType, string> = {
   STOCK: "#3b82f6",
   ETF: "#8b5cf6",
+  FUND: "#a855f7",
+  PPR_FPR: "#0d9488",
+  PRIVATE_EQUITY: "#7c3aed",
+  P2P: "#ec4899",
   BOND: "#10b981",
   REAL_ESTATE: "#f59e0b",
   CRYPTO: "#f97316",

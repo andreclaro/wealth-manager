@@ -1,53 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { convertCurrency } from "@/lib/services/priceService";
-import { getCurrentUserId } from "@/lib/auth";
+import { requireAuth, apiError } from "@/lib/api";
+import { Currency } from "@prisma/client";
+
+// Calculate account totals helper
+async function calculateAccountTotals(account: { assets: Array<{ currentPrice: number | null; quantity: number; currency: Currency }> }) {
+  let totalValueUSD = 0;
+  let totalValueEUR = 0;
+
+  for (const asset of account.assets) {
+    const totalValue = (asset.currentPrice || 0) * asset.quantity;
+    const [valueUSD, valueEUR] = await Promise.all([
+      convertCurrency(totalValue, asset.currency, "USD"),
+      convertCurrency(totalValue, asset.currency, "EUR"),
+    ]);
+    totalValueUSD += valueUSD;
+    totalValueEUR += valueEUR;
+  }
+
+  return { totalValueUSD, totalValueEUR };
+}
 
 // GET /api/accounts - List all accounts with totals for current user
 export async function GET() {
+  const { userId, error } = await requireAuth();
+  if (error) return error;
+
   try {
-    const userId = getCurrentUserId();
-    const accounts = await prisma.account.findMany({
+    const accounts = await prisma.portfolioAccount.findMany({
       where: { userId },
       orderBy: { name: "asc" },
-      include: {
-        assets: true,
-      },
+      include: { assets: true },
     });
 
-    // Calculate totals for each account
     const accountsWithTotals = await Promise.all(
       accounts.map(async (account) => {
-        let totalValueUSD = 0;
-        let totalValueEUR = 0;
-
-        for (const asset of account.assets) {
-          const currentPrice = asset.currentPrice || 0;
-          const totalValue = currentPrice * asset.quantity;
-
-          const valueUSD = await convertCurrency(
-            totalValue,
-            asset.currency,
-            "USD"
-          );
-          const valueEUR = await convertCurrency(
-            totalValue,
-            asset.currency,
-            "EUR"
-          );
-
-          totalValueUSD += valueUSD;
-          totalValueEUR += valueEUR;
-        }
-
+        const totals = await calculateAccountTotals(account);
         return {
           ...account,
-          totalValueUSD,
-          totalValueEUR,
+          ...totals,
           assets: account.assets.map((asset) => ({
             ...asset,
             totalValue: (asset.currentPrice || 0) * asset.quantity,
-            totalValueUSD: 0, // Will be calculated per asset when needed
+            totalValueUSD: 0,
             totalValueEUR: 0,
           })),
         };
@@ -55,56 +51,38 @@ export async function GET() {
     );
 
     return NextResponse.json(accountsWithTotals);
-  } catch (error) {
-    console.error("Error fetching accounts:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch accounts" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("Error fetching accounts:", err);
+    return apiError("Failed to fetch accounts");
   }
 }
 
 // POST /api/accounts - Create a new account for current user
 export async function POST(request: NextRequest) {
+  const { userId, error } = await requireAuth();
+  if (error) return error;
+
   try {
-    const userId = getCurrentUserId();
-    const body = await request.json();
-    const { name, type, currency, notes } = body;
+    const { name, type, currency, notes } = await request.json();
 
     if (!name) {
-      return NextResponse.json(
-        { error: "Account name is required" },
-        { status: 400 }
-      );
+      return apiError("Account name is required", 400);
     }
 
-    // Ensure the dev user row exists (FK requirement for development mode)
+    // Ensure user exists
     await prisma.user.upsert({
       where: { id: userId },
       update: {},
-      create: {
-        id: userId,
-        name: "Development User",
-        email: "dev@localhost",
-      },
+      create: { id: userId, name: "User", email: "user@localhost" },
     });
 
-    const account = await prisma.account.create({
-      data: {
-        name,
-        type,
-        currency: currency || "EUR",
-        notes,
-        userId,
-      },
+    const account = await prisma.portfolioAccount.create({
+      data: { name, type, currency: currency || "EUR", notes, userId },
     });
 
     return NextResponse.json(account, { status: 201 });
-  } catch (error) {
-    console.error("Error creating account:", error);
-    return NextResponse.json(
-      { error: "Failed to create account" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("Error creating account:", err);
+    return apiError("Failed to create account");
   }
 }

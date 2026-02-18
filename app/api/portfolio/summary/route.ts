@@ -2,73 +2,49 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { convertCurrency } from "@/lib/services/priceService";
 import { AssetType, Currency } from "@prisma/client";
-import { getCurrentUserId } from "@/lib/auth";
+import { requireAuth, apiError } from "@/lib/api";
+
+const INITIAL_ASSET_TYPE_DATA = { count: 0, valueUSD: 0, valueEUR: 0 };
+
+const INITIAL_CURRENCY_DATA = { count: 0, valueUSD: 0, valueEUR: 0 };
 
 // GET /api/portfolio/summary - Get portfolio summary for current user
 export async function GET() {
+  const { userId, error } = await requireAuth();
+  if (error) return error;
+
   try {
-    const userId = getCurrentUserId();
     const assets = await prisma.asset.findMany({
-      where: {
-        account: {
-          userId,
-        },
-      },
+      where: { account: { userId } },
     });
 
     let totalValueUSD = 0;
     let totalValueEUR = 0;
-    const assetsByType: Record<
-      AssetType,
-      { count: number; valueUSD: number; valueEUR: number }
-    > = {
-      STOCK: { count: 0, valueUSD: 0, valueEUR: 0 },
-      ETF: { count: 0, valueUSD: 0, valueEUR: 0 },
-      BOND: { count: 0, valueUSD: 0, valueEUR: 0 },
-      REAL_ESTATE: { count: 0, valueUSD: 0, valueEUR: 0 },
-      CRYPTO: { count: 0, valueUSD: 0, valueEUR: 0 },
-      CASH: { count: 0, valueUSD: 0, valueEUR: 0 },
-      SAVINGS: { count: 0, valueUSD: 0, valueEUR: 0 },
-      COMMODITY: { count: 0, valueUSD: 0, valueEUR: 0 },
-      OTHER: { count: 0, valueUSD: 0, valueEUR: 0 },
-    };
 
-    const assetsByCurrency: Record<
-      Currency,
-      { count: number; valueUSD: number; valueEUR: number }
-    > = {
-      USD: { count: 0, valueUSD: 0, valueEUR: 0 },
-      EUR: { count: 0, valueUSD: 0, valueEUR: 0 },
-      GBP: { count: 0, valueUSD: 0, valueEUR: 0 },
-      CHF: { count: 0, valueUSD: 0, valueEUR: 0 },
-      JPY: { count: 0, valueUSD: 0, valueEUR: 0 },
-    };
+    const assetsByType = Object.fromEntries(
+      Object.values(AssetType).map((type) => [type, { ...INITIAL_ASSET_TYPE_DATA }])
+    ) as Record<AssetType, { count: number; valueUSD: number; valueEUR: number }>;
+
+    const assetsByCurrency = Object.fromEntries(
+      Object.values(Currency).map((curr) => [curr, { ...INITIAL_CURRENCY_DATA }])
+    ) as Record<Currency, { count: number; valueUSD: number; valueEUR: number }>;
 
     for (const asset of assets) {
       const currentPrice = asset.currentPrice || 0;
       const valueInAssetCurrency = currentPrice * asset.quantity;
 
-      // Convert to USD and EUR
-      const valueUSD = await convertCurrency(
-        valueInAssetCurrency,
-        asset.currency,
-        "USD"
-      );
-      const valueEUR = await convertCurrency(
-        valueInAssetCurrency,
-        asset.currency,
-        "EUR"
-      );
+      const [valueUSD, valueEUR] = await Promise.all([
+        convertCurrency(valueInAssetCurrency, asset.currency, "USD"),
+        convertCurrency(valueInAssetCurrency, asset.currency, "EUR"),
+      ]);
 
       totalValueUSD += valueUSD;
       totalValueEUR += valueEUR;
 
-      // Update by type
       assetsByType[asset.type].count += 1;
       assetsByType[asset.type].valueUSD += valueUSD;
       assetsByType[asset.type].valueEUR += valueEUR;
 
-      // Update by currency
       assetsByCurrency[asset.currency].count += 1;
       assetsByCurrency[asset.currency].valueUSD += valueUSD;
       assetsByCurrency[asset.currency].valueEUR += valueEUR;
@@ -83,9 +59,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Error fetching portfolio summary:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch portfolio summary" },
-      { status: 500 }
-    );
+    return apiError("Failed to fetch portfolio summary");
   }
 }

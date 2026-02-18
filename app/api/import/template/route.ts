@@ -155,13 +155,13 @@ export async function POST(request: NextRequest) {
     const accountName = customAccountName || template.account.name;
 
     // Check if account already exists
-    let account = await prisma.account.findFirst({
+    let account = await prisma.portfolioAccount.findFirst({
       where: { name: accountName },
     });
 
     let accountCreated = false;
     if (!account) {
-      account = await prisma.account.create({
+      account = await prisma.portfolioAccount.create({
         data: {
           name: accountName,
           type: template.account.type,

@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { AssetType, Currency, Account } from "@prisma/client";
+import { AssetType, Currency, PortfolioAccount } from "@prisma/client";
 import { AssetFormData, ASSET_TYPE_LABELS, CURRENCY_LABELS } from "@/types";
 import { Loader2 } from "lucide-react";
 
@@ -53,7 +53,7 @@ export function AssetForm({
     ...initialData,
   });
   const [isFetchingName, setIsFetchingName] = useState(false);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accounts, setAccounts] = useState<PortfolioAccount[]>([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
 
   // Auto-fetch name when symbol changes
@@ -137,10 +137,60 @@ export function AssetForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Asset Type - First */}
+      <div className="space-y-2">
+        <Label htmlFor="type">Asset Type</Label>
+        <Select
+          value={formData.type}
+          onValueChange={(value) => {
+            const newType = value as AssetType;
+            updateField("type", newType);
+            // Auto-set manual price for certain types
+            if (["REAL_ESTATE", "CASH", "SAVINGS", "OTHER", "BOND"].includes(value)) {
+              updateField("isManualPrice", true);
+            }
+            // Auto-set defaults for cash assets
+            if (newType === "CASH") {
+              const selectedAccount = accounts.find((a) => a.id === formData.accountId);
+              const accountName = selectedAccount?.name || formData.currency;
+              const currency = selectedAccount?.currency || formData.currency;
+              updateField("symbol", currency);
+              updateField("name", `Cash - ${accountName}`);
+              updateField("currentPrice", 1); // Cash is always worth 1.00 per unit
+            } else if (newType === "SAVINGS") {
+              updateField("symbol", "SAVINGS");
+              updateField("name", "Savings Account");
+              updateField("currentPrice", 1); // Savings balance per unit = 1.00
+            } else {
+              // Clear auto-set values when switching away from cash/savings
+              if (formData.symbol === formData.currency && formData.name?.startsWith("Cash - ")) {
+                updateField("symbol", "");
+                updateField("name", "");
+              }
+              if (formData.symbol === "SAVINGS" && formData.name === "Savings Account") {
+                updateField("symbol", "");
+                updateField("name", "");
+              }
+            }
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(ASSET_TYPE_LABELS).map(([type, label]) => (
+              <SelectItem key={type} value={type}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="symbol">
-            {isCash ? "Currency" : `Symbol / Ticker ${isCrypto ? "(e.g., BTC, ETH)" : ""}`}
+            {isCash ? "Currency" : formData.type === "REAL_ESTATE" ? "Property ID" : `Symbol / Ticker / ISIN ${isCrypto ? "(e.g., BTC, ETH)" : ""}`}
           </Label>
           <Input
             id="symbol"
@@ -148,18 +198,19 @@ export function AssetForm({
             onChange={(e) => {
               const value = e.target.value.toUpperCase();
               updateField("symbol", value);
-              // Auto-update name for cash when symbol changes
-              if (isCash) {
-                updateField("name", `Cash - ${value}`);
-              }
             }}
-            placeholder={isCrypto ? "BTC" : isCash ? "USD" : "AAPL"}
+            placeholder={isCrypto ? "BTC" : isCash ? "USD" : formData.type === "REAL_ESTATE" ? "PROP001" : "AAPL, IE000BI8OT95 or IE00BK5BQX27/VWCG"}
             required
             disabled={isCash}
           />
           {isCash && (
             <p className="text-xs text-muted-foreground">
               Symbol is auto-set to the selected currency
+            </p>
+          )}
+          {(formData.type === "STOCK" || formData.type === "ETF") && (
+            <p className="text-xs text-muted-foreground">
+              Ticker (AAPL), ISIN (IE000BI8OT95) or ISIN/Ticker (IE00BK5BQX27/VWCG) for specific exchange
             </p>
           )}
         </div>
@@ -188,52 +239,6 @@ export function AssetForm({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="type">Asset Type</Label>
-          <Select
-            value={formData.type}
-            onValueChange={(value) => {
-              const newType = value as AssetType;
-              updateField("type", newType);
-              // Auto-set manual price for certain types
-              if (["REAL_ESTATE", "CASH", "SAVINGS", "OTHER", "BOND"].includes(value)) {
-                updateField("isManualPrice", true);
-              }
-              // Auto-set defaults for cash assets
-              if (newType === "CASH") {
-                updateField("symbol", formData.currency);
-                updateField("name", `Cash - ${formData.currency}`);
-                updateField("currentPrice", 1); // Cash is always worth 1.00 per unit
-              } else if (newType === "SAVINGS") {
-                updateField("symbol", "SAVINGS");
-                updateField("name", "Savings Account");
-                updateField("currentPrice", 1); // Savings balance per unit = 1.00
-              } else {
-                // Clear auto-set values when switching away from cash/savings
-                if (formData.symbol === formData.currency && formData.name?.startsWith("Cash - ")) {
-                  updateField("symbol", "");
-                  updateField("name", "");
-                }
-                if (formData.symbol === "SAVINGS" && formData.name === "Savings Account") {
-                  updateField("symbol", "");
-                  updateField("name", "");
-                }
-              }
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(ASSET_TYPE_LABELS).map(([type, label]) => (
-                <SelectItem key={type} value={type}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
         <div className="space-y-2">
           <Label htmlFor="currency">Currency</Label>
           <Select
@@ -359,9 +364,19 @@ export function AssetForm({
         </Label>
         <Select
           value={formData.accountId || "none"}
-          onValueChange={(value) =>
-            updateField("accountId", value === "none" ? "" : value)
-          }
+          onValueChange={(value) => {
+            const accountId = value === "none" ? "" : value;
+            updateField("accountId", accountId);
+            
+            // For CASH assets, auto-update name to include account name
+            if (isCash && accountId) {
+              const selectedAccount = accounts.find((a) => a.id === accountId);
+              if (selectedAccount) {
+                updateField("name", `Cash - ${selectedAccount.name}`);
+                updateField("symbol", selectedAccount.currency);
+              }
+            }
+          }}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select an account" />

@@ -23,7 +23,7 @@ async function main() {
 
   // Create sample accounts (optional - remove if not needed)
   const accounts = await Promise.all([
-    prisma.account.upsert({
+    prisma.portfolioAccount.upsert({
       where: { id: "sample-broker" },
       update: {},
       create: {
@@ -34,7 +34,7 @@ async function main() {
         userId: defaultUser.id,
       },
     }),
-    prisma.account.upsert({
+    prisma.portfolioAccount.upsert({
       where: { id: "sample-crypto" },
       update: {},
       create: {
@@ -45,7 +45,7 @@ async function main() {
         userId: defaultUser.id,
       },
     }),
-    prisma.account.upsert({
+    prisma.portfolioAccount.upsert({
       where: { id: "sample-bank" },
       update: {},
       create: {

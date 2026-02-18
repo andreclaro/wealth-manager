@@ -217,14 +217,14 @@ export async function POST(request: NextRequest) {
     for (const [accountName, accountData] of accountsToCreate) {
       try {
         // Check if account already exists
-        const existingAccount = await prisma.account.findFirst({
+        const existingAccount = await prisma.portfolioAccount.findFirst({
           where: { name: accountName },
         });
 
         if (existingAccount) {
           createdAccounts.set(accountName, existingAccount.id);
         } else {
-          const newAccount = await prisma.account.create({
+          const newAccount = await prisma.portfolioAccount.create({
             data: {
               name: accountData.name,
               type: accountData.type,

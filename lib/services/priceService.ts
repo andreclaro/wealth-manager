@@ -1,5 +1,8 @@
 import { Currency } from "@prisma/client";
 
+// ISIN pattern: 2 letters + 9 alphanumeric + 1 check digit (12 chars total)
+const ISIN_REGEX = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/i;
+
 // Cache for exchange rates
 interface ExchangeRateCache {
   rate: number;
@@ -59,8 +62,13 @@ const EUROPEAN_ETF_MAPPINGS: Record<string, { stooqSymbol: string; name: string 
   "EXSA.DE": { stooqSymbol: "exsa.de", name: "iShares Core EURO STOXX 50 UCITS ETF EUR Acc" },
   SXR8: { stooqSymbol: "sxr8.de", name: "iShares Core S&P 500 UCITS ETF USD Acc" },
   "SXR8.DE": { stooqSymbol: "sxr8.de", name: "iShares Core S&P 500 UCITS ETF USD Acc" },
+  // CSSPX is the Swiss ticker for same ETF as SXR8 - map to Xetra
+  CSSPX: { stooqSymbol: "sxr8.de", name: "iShares Core S&P 500 UCITS ETF USD Acc" },
+  "CSSPX.SW": { stooqSymbol: "sxr8.de", name: "iShares Core S&P 500 UCITS ETF USD Acc" },
   VWCE: { stooqSymbol: "vwce.de", name: "Vanguard FTSE All-World UCITS ETF USD Acc" },
   "VWCE.DE": { stooqSymbol: "vwce.de", name: "Vanguard FTSE All-World UCITS ETF USD Acc" },
+  XNAS: { stooqSymbol: "xnas.de", name: "Xtrackers Nasdaq 100 UCITS ETF 1C" },
+  "XNAS.DE": { stooqSymbol: "xnas.de", name: "Xtrackers Nasdaq 100 UCITS ETF 1C" },
 };
 
 // Stock symbols with class shares: Finnhub uses dot format (BRK.B, BF.B)
@@ -123,12 +131,145 @@ async function fetchStooqPrice(stooqSymbol: string): Promise<{ usd: number; eur:
 }
 
 /**
+ * Check if a string looks like an ISIN
+ * Also supports ISIN/TICKER format (e.g., IE00BK5BQX27/VWCG)
+ */
+export function isISIN(value: string): boolean {
+  const cleanValue = value.trim().toUpperCase().split('/')[0];
+  return ISIN_REGEX.test(cleanValue);
+}
+
+/**
+ * Parse ISIN input which can be:
+ * - Just ISIN: "IE00BK5BQX27"
+ * - ISIN with preferred ticker: "IE00BK5BQX27/VWCG"
+ * Returns { isin, preferredTicker? }
+ */
+export function parseISINInput(value: string): { isin: string; preferredTicker?: string } {
+  const parts = value.trim().toUpperCase().split('/');
+  return {
+    isin: parts[0],
+    preferredTicker: parts[1],
+  };
+}
+
+/**
+ * Lookup ticker symbol from ISIN using OpenFIGI API (free)
+ * Returns all available mappings to let caller choose based on currency/exchange
+ */
+export async function lookupSymbolFromISIN(isin: string): Promise<{ 
+  symbol: string; 
+  name: string; 
+  currency: string;
+  exchange: string;
+}[] | null> {
+  try {
+    const response = await fetch("https://api.openfigi.com/v3/mapping", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([{
+        idType: "ID_ISIN",
+        idValue: isin.trim().toUpperCase(),
+      }]),
+    });
+
+    if (!response.ok) {
+      console.error(`OpenFIGI API error: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const result = data[0];
+
+    if (result && result.data && result.data.length > 0) {
+      return result.data.map((m: any) => ({
+        symbol: m.ticker,
+        name: m.name,
+        currency: m.currency,
+        exchange: m.exchCode,
+      }));
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error looking up ISIN:", error);
+    return null;
+  }
+}
+
+/**
+ * Get best ticker match from ISIN results based on target currency
+ * Supports ISIN/TICKER format to force specific ticker (e.g., IE00BK5BQX27/VWCG)
+ */
+export async function getBestTickerFromISIN(
+  isinInput: string, 
+  targetCurrency?: string
+): Promise<{ symbol: string; name: string; currency: string; exchange: string } | null> {
+  const { isin, preferredTicker } = parseISINInput(isinInput);
+  const mappings = await lookupSymbolFromISIN(isin);
+  if (!mappings || mappings.length === 0) return null;
+  
+  // If user specified preferred ticker, try to find exact match first
+  if (preferredTicker) {
+    const tickerMatch = mappings.find(m => m.symbol === preferredTicker);
+    if (tickerMatch) return tickerMatch;
+    // If no exact match, try case-insensitive
+    const tickerMatchCI = mappings.find(m => 
+      m.symbol.toUpperCase() === preferredTicker.toUpperCase()
+    );
+    if (tickerMatchCI) return tickerMatchCI;
+  }
+  
+  // If no target currency, return first result
+  if (!targetCurrency) return mappings[0];
+  
+  // Try to find exact currency match
+  const currencyMatch = mappings.find(m => 
+    m.currency === targetCurrency.toUpperCase()
+  );
+  if (currencyMatch) return currencyMatch;
+  
+  // Fallback: prefer common European exchanges for EUR assets
+  if (targetCurrency.toUpperCase() === "EUR") {
+    const preferredExchanges = ["GR", "GF", "GD", "GS", "GM", "GH", "GT"]; // Xetra variants
+    for (const exch of preferredExchanges) {
+      const match = mappings.find(m => m.exchange === exch);
+      if (match) return match;
+    }
+  }
+  
+  // Fallback: prefer London for GBP
+  if (targetCurrency.toUpperCase() === "GBP") {
+    const gbpMatch = mappings.find(m => m.exchange === "LN" || m.currency === "GBP");
+    if (gbpMatch) return gbpMatch;
+  }
+  
+  // Last resort: return first
+  return mappings[0];
+}
+
+/**
  * Fetch stock/ETF price from Finnhub (US) or Stooq (European ETFs)
+ * Supports both ticker symbols and ISINs
  */
 export async function fetchStockPrice(symbol: string): Promise<{ usd: number; eur: number } | null> {
-  const upper = symbol.trim().toUpperCase();
-  const baseSymbol = upper.split(".")[0];
-  const europeanEtf = EUROPEAN_ETF_MAPPINGS[upper] ?? EUROPEAN_ETF_MAPPINGS[baseSymbol];
+  let lookupSymbol = symbol.trim().toUpperCase();
+  
+  // If input looks like an ISIN, lookup the ticker symbol
+  if (isISIN(lookupSymbol)) {
+    const isinData = await getBestTickerFromISIN(lookupSymbol);
+    if (isinData) {
+      lookupSymbol = isinData.symbol;
+    } else {
+      console.warn(`Could not resolve ISIN: ${symbol}`);
+      return null;
+    }
+  }
+  
+  const baseSymbol = lookupSymbol.split(".")[0];
+  const europeanEtf = EUROPEAN_ETF_MAPPINGS[lookupSymbol] ?? EUROPEAN_ETF_MAPPINGS[baseSymbol];
 
   // Try Stooq first for known European ETFs
   if (europeanEtf) {
@@ -137,7 +278,7 @@ export async function fetchStockPrice(symbol: string): Promise<{ usd: number; eu
   }
 
   const apiKey = process.env.FINNHUB_API_KEY;
-  const normalizedSymbol = normalizeStockSymbol(symbol);
+  const normalizedSymbol = normalizeStockSymbol(lookupSymbol);
 
   if (!apiKey) {
     console.warn("Finnhub API key not configured");
@@ -152,25 +293,34 @@ export async function fetchStockPrice(symbol: string): Promise<{ usd: number; eu
 
     if (!response.ok) {
       console.error(`Finnhub API error: ${response.status}`);
-      return null;
+      // Fall through to Stooq fallback
+    } else {
+      const data = await response.json();
+      const usdPrice = data.c; // Current price
+
+      if (usdPrice && usdPrice > 0) {
+        // Convert to EUR
+        const eurRate = await getExchangeRate("USD", "EUR");
+        const eurPrice = usdPrice * eurRate;
+
+        return { usd: usdPrice, eur: eurPrice };
+      }
     }
-
-    const data = await response.json();
-    const usdPrice = data.c; // Current price
-
-    if (!usdPrice || usdPrice <= 0) {
-      return null;
-    }
-
-    // Convert to EUR
-    const eurRate = await getExchangeRate("USD", "EUR");
-    const eurPrice = usdPrice * eurRate;
-
-    return { usd: usdPrice, eur: eurPrice };
   } catch (error) {
-    console.error("Error fetching stock price:", error);
-    return null;
+    console.error("Error fetching stock price from Finnhub:", error);
+    // Fall through to Stooq fallback
   }
+
+  // Fallback: Try Stooq for European ETFs (e.g., XNAS -> XNAS.DE)
+  // Common European exchange suffixes
+  const stooqSuffixes = ['.de', '.l', '.pa', '.mi', '.mc', '.sw'];
+  
+  for (const suffix of stooqSuffixes) {
+    const stooqPrice = await fetchStooqPrice(`${baseSymbol}${suffix}`);
+    if (stooqPrice) return stooqPrice;
+  }
+
+  return null;
 }
 
 /**
@@ -281,17 +431,28 @@ export async function convertCurrency(
 
 /**
  * Fetch stock/ETF name from Finnhub or European ETF mapping
+ * Supports both ticker symbols and ISINs
  */
 export async function fetchStockName(symbol: string): Promise<string | null> {
-  const upper = symbol.trim().toUpperCase();
-  const baseSymbol = upper.split(".")[0];
-  const europeanEtf = EUROPEAN_ETF_MAPPINGS[upper] ?? EUROPEAN_ETF_MAPPINGS[baseSymbol];
+  let lookupSymbol = symbol.trim().toUpperCase();
+  
+  // If input looks like an ISIN, lookup the ticker and name
+  if (isISIN(lookupSymbol)) {
+    const isinData = await getBestTickerFromISIN(lookupSymbol);
+    if (isinData) {
+      return isinData.name;
+    }
+    return null;
+  }
+  
+  const baseSymbol = lookupSymbol.split(".")[0];
+  const europeanEtf = EUROPEAN_ETF_MAPPINGS[lookupSymbol] ?? EUROPEAN_ETF_MAPPINGS[baseSymbol];
 
   // European ETFs: return name from mapping (no API needed)
   if (europeanEtf) return europeanEtf.name;
 
   const apiKey = process.env.FINNHUB_API_KEY;
-  const normalizedSymbol = normalizeStockSymbol(symbol);
+  const normalizedSymbol = normalizeStockSymbol(lookupSymbol);
 
   if (!apiKey) {
     console.warn("Finnhub API key not configured");
@@ -357,6 +518,8 @@ export async function fetchAssetName(
   switch (type) {
     case "STOCK":
     case "ETF":
+    case "FUND":
+    case "PPR_FPR":
       return fetchStockName(symbol);
     case "CRYPTO":
       return fetchCryptoName(symbol);
@@ -376,6 +539,8 @@ export async function fetchAssetPrice(
   switch (type) {
     case "STOCK":
     case "ETF":
+    case "FUND":
+    case "PPR_FPR":
       return fetchStockPrice(symbol);
     case "CRYPTO":
       return fetchCryptoPrice(symbol);

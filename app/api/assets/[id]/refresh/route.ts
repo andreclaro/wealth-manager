@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fetchAssetPrice } from "@/lib/services/priceService";
+import { fetchAssetPrice, isISIN, getBestTickerFromISIN } from "@/lib/services/priceService";
 import { getCurrentUserId } from "@/lib/auth";
 
 // POST /api/assets/:id/refresh - Refresh asset price
@@ -9,7 +9,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const { id } = await params;
 
     // Get asset for current user
@@ -34,8 +37,23 @@ export async function POST(
       });
     }
 
-    // Fetch new price
-    const priceData = await fetchAssetPrice(asset.symbol, asset.type);
+    // Fetch new price (handle ISIN if stored as symbol)
+    let symbolToFetch = asset.symbol;
+    
+    // If symbol looks like an ISIN, resolve it to ticker
+    if (isISIN(symbolToFetch)) {
+      const isinData = await getBestTickerFromISIN(symbolToFetch, asset.currency);
+      if (isinData) {
+        symbolToFetch = isinData.symbol;
+        // Also update the asset symbol to the ticker for future refreshes
+        await prisma.asset.update({
+          where: { id },
+          data: { symbol: isinData.symbol, name: isinData.name || asset.name },
+        });
+      }
+    }
+    
+    const priceData = await fetchAssetPrice(symbolToFetch, asset.type);
 
     if (!priceData) {
       return NextResponse.json(

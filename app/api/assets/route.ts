@@ -1,20 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AssetType, Currency } from "@prisma/client";
-import { fetchAssetPrice, convertCurrency } from "@/lib/services/priceService";
+import { fetchAssetPrice, convertCurrency, isISIN, getBestTickerFromISIN } from "@/lib/services/priceService";
 import { getCurrentUserId } from "@/lib/auth";
 
 // GET /api/assets - List all assets for current user
 export async function GET() {
   try {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const assets = await prisma.asset.findMany({
       where: {
         account: {
           userId,
         },
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy: { name: "asc" },
       include: {
         account: true,
       },
@@ -84,8 +87,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify account belongs to current user
-    const userId = getCurrentUserId();
-    const account = await prisma.account.findUnique({
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const account = await prisma.portfolioAccount.findUnique({
       where: { id: accountId, userId },
     });
 
@@ -96,12 +102,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Resolve ISIN to ticker if needed
+    let finalSymbol = symbol.toUpperCase().trim();
+    let finalName = name;
+    
+    if (isISIN(finalSymbol)) {
+      const isinData = await getBestTickerFromISIN(finalSymbol, currency);
+      if (isinData) {
+        finalSymbol = isinData.symbol;
+        // Use API name if user didn't provide a custom name
+        if (!finalName || finalName === finalSymbol) {
+          finalName = isinData.name;
+        }
+      }
+    }
+
     // Fetch current price if not manual and not provided
     let finalPrice = currentPrice;
     let priceUpdatedAt = null;
 
     if (!isManualPrice && !currentPrice) {
-      const priceData = await fetchAssetPrice(symbol, type);
+      const priceData = await fetchAssetPrice(finalSymbol, type);
       if (priceData) {
         // Store price in asset's currency
         finalPrice =
@@ -115,8 +136,8 @@ export async function POST(request: NextRequest) {
     // Create asset
     const asset = await prisma.asset.create({
       data: {
-        symbol: symbol.toUpperCase(),
-        name,
+        symbol: finalSymbol,
+        name: finalName,
         type: type as AssetType,
         quantity: parseFloat(quantity),
         purchasePrice: purchasePrice ? parseFloat(purchasePrice) : null,

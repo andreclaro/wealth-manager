@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AssetWithValue, ASSET_TYPE_LABELS, ASSET_TYPE_COLORS } from "@/types";
+import { formatCurrency } from "@/lib/utils";
 import { format } from "date-fns";
 import {
   MoreHorizontal,
@@ -20,6 +22,7 @@ import {
   Trash2,
   Edit,
   Building2,
+  ExternalLink,
 } from "lucide-react";
 
 interface AssetCardProps {
@@ -37,14 +40,8 @@ export function AssetCard({
   onDelete,
   isRefreshing = false,
 }: AssetCardProps) {
-  const formatCurrency = (value: number, currency: string) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
+  const editUrl = `/app/assets/${asset.id}/edit`;
+
 
   const formatNumber = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -66,29 +63,34 @@ export function AssetCard({
   const isProfitable = gainLoss >= 0;
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className="hover:shadow-md transition-shadow group">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-lg font-semibold truncate">
-                {asset.symbol}
-              </CardTitle>
-              <Badge
-                variant="secondary"
-                style={{
-                  backgroundColor: `${ASSET_TYPE_COLORS[asset.type]}20`,
-                  color: ASSET_TYPE_COLORS[asset.type],
-                  borderColor: ASSET_TYPE_COLORS[asset.type],
-                }}
-                className="border"
-              >
-                {ASSET_TYPE_LABELS[asset.type]}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground truncate">
-              {asset.name}
-            </p>
+            <Link 
+              href={editUrl}
+              className="block hover:opacity-70 transition-opacity"
+            >
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-lg font-semibold truncate">
+                  {asset.symbol}
+                </CardTitle>
+                <Badge
+                  variant="secondary"
+                  style={{
+                    backgroundColor: `${ASSET_TYPE_COLORS[asset.type]}20`,
+                    color: ASSET_TYPE_COLORS[asset.type],
+                    borderColor: ASSET_TYPE_COLORS[asset.type],
+                  }}
+                  className="border"
+                >
+                  {ASSET_TYPE_LABELS[asset.type]}
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground truncate">
+                {asset.name}
+              </p>
+            </Link>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -100,6 +102,12 @@ export function AssetCard({
               <DropdownMenuItem onClick={onEdit}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={editUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Open in New Tab
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={onRefresh}

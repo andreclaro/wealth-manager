@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,8 +31,9 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWithTotals, CURRENCY_LABELS } from "@/types";
+import { formatCurrency } from "@/lib/utils";
 import { Currency } from "@prisma/client";
-import { Building2, Plus, Trash2, Wallet, TrendingUp, Pencil } from "lucide-react";
+import { Building2, Plus, Trash2, Wallet, ExternalLink, Pencil } from "lucide-react";
 import { format } from "date-fns";
 
 const ACCOUNT_TYPES = [
@@ -39,10 +42,13 @@ const ACCOUNT_TYPES = [
   "Crypto Exchange",
   "Crypto Wallet",
   "Savings",
+  "Pension",
+  "P2P",
   "Other",
 ];
 
 export default function AccountsPage() {
+  const router = useRouter();
   const [accounts, setAccounts] = useState<AccountWithTotals[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -155,14 +161,7 @@ export default function AccountsPage() {
     }
   };
 
-  const formatCurrency = (value: number, currency: string) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
+
 
   return (
     <div className="space-y-6">
@@ -298,8 +297,16 @@ export default function AccountsPage() {
             <Card key={account.id}>
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-lg">{account.name}</CardTitle>
+                  <div className="min-w-0 flex-1">
+                    <Link 
+                      href={`/app/assets?account=${account.id}`}
+                      className="group flex items-center gap-2"
+                    >
+                      <CardTitle className="text-lg group-hover:text-primary transition-colors truncate">
+                        {account.name}
+                      </CardTitle>
+                      <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                    </Link>
                     {account.type && (
                       <CardDescription>{account.type}</CardDescription>
                     )}

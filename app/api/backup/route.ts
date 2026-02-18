@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 // GET /api/backup - Export all data
 export async function GET() {
   try {
-    const accounts = await prisma.account.findMany({
+    const accounts = await prisma.portfolioAccount.findMany({
       orderBy: { createdAt: "asc" },
     });
 
@@ -65,14 +65,14 @@ export async function POST(request: NextRequest) {
     // Clear existing data (in reverse order of dependencies)
     await prisma.priceHistory.deleteMany({});
     await prisma.asset.deleteMany({});
-    await prisma.account.deleteMany({});
+    await prisma.portfolioAccount.deleteMany({});
 
     // Create accounts first and map old IDs to new IDs
     const accountIdMap = new Map<string, string>();
     
     for (const account of accounts) {
       const { id: oldId, createdAt, updatedAt, ...accountData } = account;
-      const newAccount = await prisma.account.create({
+      const newAccount = await prisma.portfolioAccount.create({
         data: {
           ...accountData,
           currency: accountData.currency || "EUR",

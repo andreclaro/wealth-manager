@@ -19,17 +19,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { PriceHistory } from "@prisma/client";
+import { formatCurrency } from "@/lib/utils";
 import { format } from "date-fns";
-import { TrendingUp, TrendingDown, History } from "lucide-react";
+import { TrendingUp, TrendingDown, History, Trash2 } from "lucide-react";
 
 interface AssetHistoryProps {
   priceHistory: PriceHistory[];
   currency: string;
   symbol: string;
+  onDeleteEntry?: (id: string) => void;
+  isDeleting?: string | null;
 }
 
-export function AssetHistory({ priceHistory, currency, symbol }: AssetHistoryProps) {
+export function AssetHistory({ 
+  priceHistory, 
+  currency, 
+  symbol, 
+  onDeleteEntry,
+  isDeleting 
+}: AssetHistoryProps) {
   if (!priceHistory || priceHistory.length === 0) {
     return (
       <Card>
@@ -61,14 +71,7 @@ export function AssetHistory({ priceHistory, currency, symbol }: AssetHistoryPro
     quantity: record.quantity,
   }));
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
+
 
   const formatDate = (date: Date | string) => {
     try {
@@ -115,7 +118,7 @@ export function AssetHistory({ priceHistory, currency, symbol }: AssetHistoryPro
               className="text-sm font-medium"
               style={{ color: entry.color }}
             >
-              {entry.name}: {formatCurrency(entry.value)}
+              {entry.name}: {formatCurrency(entry.value, currency)}
             </p>
           ))}
         </div>
@@ -123,6 +126,11 @@ export function AssetHistory({ priceHistory, currency, symbol }: AssetHistoryPro
     }
     return null;
   };
+
+  // Sort for table display (newest first)
+  const tableHistory = [...priceHistory].sort(
+    (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+  );
 
   return (
     <div className="space-y-6">
@@ -216,49 +224,70 @@ export function AssetHistory({ priceHistory, currency, symbol }: AssetHistoryPro
                   <TableHead className="text-right">Price</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
                   <TableHead className="text-right">Total Value</TableHead>
+                  {onDeleteEntry && <TableHead className="w-[50px]"></TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[...priceHistory]
-                  .sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime())
-                  .map((record, index) => {
-                    const prevRecord = priceHistory[index + 1];
-                    const priceChange = prevRecord 
-                      ? record.price - prevRecord.price 
-                      : 0;
-                    const priceChangePercent = prevRecord && prevRecord.price > 0
-                      ? (priceChange / prevRecord.price) * 100
-                      : 0;
+                {tableHistory.map((record, index) => {
+                  const prevRecord = tableHistory[index + 1];
+                  const priceChange = prevRecord 
+                    ? record.price - prevRecord.price 
+                    : 0;
+                  const priceChangePercent = prevRecord && prevRecord.price > 0
+                    ? (priceChange / prevRecord.price) * 100
+                    : 0;
 
-                    return (
-                      <TableRow key={record.id}>
-                        <TableCell className="text-sm">
-                          {formatDate(record.recordedAt)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex flex-col items-end">
-                            <span>{formatCurrency(record.price)}</span>
-                            {prevRecord && (
-                              <span
-                                className={`text-xs ${
-                                  priceChange >= 0 ? "text-green-600" : "text-red-600"
-                                }`}
-                              >
-                                {priceChange >= 0 ? "+" : ""}
-                                {priceChangePercent.toFixed(2)}%
-                              </span>
+                  return (
+                    <TableRow key={record.id}>
+                      <TableCell className="text-sm">
+                        {formatDate(record.recordedAt)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex flex-col items-end">
+                          <span>{formatCurrency(record.price, currency)}</span>
+                          {prevRecord && (
+                            <span
+                              className={`text-xs ${
+                                priceChange >= 0 ? "text-green-600" : "text-red-600"
+                              }`}
+                            >
+                              {priceChange >= 0 ? "+" : ""}
+                              {priceChangePercent.toFixed(2)}%
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {record.quantity.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(record.totalValue, currency)}
+                      </TableCell>
+                      {onDeleteEntry && (
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              if (confirm("Are you sure you want to delete this history record?")) {
+                                onDeleteEntry(record.id);
+                              }
+                            }}
+                            disabled={isDeleting === record.id || tableHistory.length <= 1}
+                            title={tableHistory.length <= 1 ? "Cannot delete the only history record" : "Delete history record"}
+                          >
+                            {isDeleting === record.id ? (
+                              <span className="h-4 w-4 animate-spin">⌛</span>
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
                             )}
-                          </div>
+                          </Button>
                         </TableCell>
-                        <TableCell className="text-right">
-                          {record.quantity.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {formatCurrency(record.totalValue)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                      )}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

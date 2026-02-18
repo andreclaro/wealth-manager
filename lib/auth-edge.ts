@@ -1,15 +1,11 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import { prisma } from "./prisma";
 
-const {
+// Edge-compatible auth config (no Prisma adapter)
+export const {
   handlers: { GET, POST },
   auth,
-  signIn,
-  signOut,
 } = NextAuth({
-  adapter: PrismaAdapter(prisma),
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
     Google({
@@ -39,22 +35,5 @@ const {
       return session;
     },
   },
-  events: {
-    async signIn({ user }) {
-      console.log(`User signed in: ${user.email}`);
-    },
-  },
   trustHost: true,
 });
-
-// Export auth functions
-export { GET, POST, auth, signIn, signOut };
-
-/**
- * Get the current user ID from the session.
- * Use this in API routes to get the authenticated user's ID.
- */
-export async function getCurrentUserId(): Promise<string | null> {
-  const session = await auth();
-  return (session?.user as any)?.id || null;
-}

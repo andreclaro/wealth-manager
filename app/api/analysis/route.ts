@@ -24,7 +24,10 @@ interface AssetPerformance {
 // GET /api/analysis - Get portfolio analysis data
 export async function GET() {
   try {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     // Get all assets for the user with their accounts
     const assets = await prisma.asset.findMany({

@@ -6,7 +6,10 @@ import { getCurrentUserId } from "@/lib/auth";
 // POST /api/prices/refresh - Refresh all asset prices for current user
 export async function POST() {
   try {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const assets = await prisma.asset.findMany({
       where: {
         isManualPrice: false,

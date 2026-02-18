@@ -36,6 +36,7 @@ type WizardStep = "account" | "assets" | "review" | "done";
 type AccountMode = "new" | "existing";
 
 const MANUAL_TYPES: AssetType[] = [
+  "FUND",
   "BOND",
   "REAL_ESTATE",
   "CASH",
@@ -47,10 +48,11 @@ const MANUAL_TYPES: AssetType[] = [
 const ACCOUNT_TYPES = [
   "Bank",
   "Broker",
+  "Crypto Exchange",
   "Crypto Wallet",
-  "Exchange",
-  "Savings Account",
-  "Investment Fund",
+  "Savings",
+  "Pension",
+  "P2P",
   "Other",
 ];
 
@@ -151,7 +153,51 @@ export function SetupWizard({ open, onOpenChange, onSuccess }: SetupWizardProps)
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
-        if (field === "symbol") return { ...r, symbol: value.toUpperCase() };
+        
+        if (field === "symbol") {
+          return { ...r, symbol: value.toUpperCase() };
+        }
+        
+        if (field === "type") {
+          const newType = value as AssetType;
+          // Auto-set defaults for special types
+          if (newType === "CASH") {
+            return { 
+              ...r, 
+              type: newType, 
+              symbol: r.currency, 
+              currentPrice: "1" 
+            };
+          } else if (newType === "SAVINGS") {
+            return { 
+              ...r, 
+              type: newType, 
+              symbol: "SAVINGS", 
+              currentPrice: "1" 
+            };
+          } else {
+            // Clear auto-set values when switching away from cash/savings
+            let newSymbol = r.symbol;
+            let newPrice = r.currentPrice;
+            if (r.type === "CASH") {
+              newSymbol = "";
+              newPrice = "";
+            } else if (r.type === "SAVINGS" && r.symbol === "SAVINGS") {
+              newSymbol = "";
+              newPrice = "";
+            }
+            return { ...r, type: newType, symbol: newSymbol, currentPrice: newPrice };
+          }
+        }
+        
+        if (field === "currency") {
+          // For cash, symbol follows currency
+          if (r.type === "CASH") {
+            return { ...r, currency: value as Currency, symbol: value };
+          }
+          return { ...r, currency: value as Currency };
+        }
+        
         return { ...r, [field]: value };
       })
     );
@@ -492,14 +538,21 @@ export function SetupWizard({ open, onOpenChange, onSuccess }: SetupWizardProps)
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row) => (
+                  {rows.map((row) => {
+                    const isCash = row.type === "CASH";
+                    const isSavings = row.type === "SAVINGS";
+                    const isManualType = MANUAL_TYPES.includes(row.type);
+                    
+                    return (
                     <TableRow key={row.id}>
                       <TableCell className="py-2">
                         <Input
-                          placeholder="AAPL"
+                          placeholder={isCash ? "Currency" : isSavings ? "SAVINGS" : "AAPL, ISIN or ISIN/Ticker"}
                           value={row.symbol}
                           onChange={(e) => updateRow(row.id, "symbol", e.target.value)}
                           className="h-8 uppercase"
+                          disabled={isCash}
+                          title={isCash ? "Symbol auto-set to currency for Cash" : ""}
                         />
                       </TableCell>
                       <TableCell className="py-2">
@@ -523,6 +576,7 @@ export function SetupWizard({ open, onOpenChange, onSuccess }: SetupWizardProps)
                         <Select
                           value={row.currency}
                           onValueChange={(v) => updateRow(row.id, "currency", v)}
+                          disabled={isCash}
                         >
                           <SelectTrigger className="h-8 w-full">
                             <SelectValue />
@@ -539,7 +593,7 @@ export function SetupWizard({ open, onOpenChange, onSuccess }: SetupWizardProps)
                       <TableCell className="py-2">
                         <Input
                           type="number"
-                          placeholder="10"
+                          placeholder={isCash || isSavings ? "Balance" : "10"}
                           value={row.quantity}
                           onChange={(e) => updateRow(row.id, "quantity", e.target.value)}
                           className="h-8"
@@ -550,12 +604,14 @@ export function SetupWizard({ open, onOpenChange, onSuccess }: SetupWizardProps)
                       <TableCell className="py-2">
                         <Input
                           type="number"
-                          placeholder="optional"
+                          placeholder={isCash || isSavings ? "1.00 (auto)" : isManualType ? "required" : "optional"}
                           value={row.currentPrice}
                           onChange={(e) => updateRow(row.id, "currentPrice", e.target.value)}
                           className="h-8"
                           min="0"
                           step="any"
+                          disabled={isCash || isSavings}
+                          title={isCash || isSavings ? "Price auto-set to 1.00" : ""}
                         />
                       </TableCell>
                       <TableCell className="py-2">
@@ -569,13 +625,14 @@ export function SetupWizard({ open, onOpenChange, onSuccess }: SetupWizardProps)
                         </Button>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  );})}
                 </TableBody>
               </Table>
             </div>
 
             <p className="text-xs text-muted-foreground">
-              * Price required for Bond, Real Estate, Cash, Savings, Commodity, Other
+              * Price required for Fund, Bond, Real Estate, Commodity, Other. 
+              Cash & Savings auto-set to 1.00.
             </p>
 
             <Button variant="outline" size="sm" onClick={addRow} className="gap-1">

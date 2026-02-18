@@ -9,9 +9,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const { id } = await params;
-    const account = await prisma.account.findUnique({
+    const account = await prisma.portfolioAccount.findUnique({
       where: { id, userId },
       include: {
         assets: {
@@ -80,13 +83,16 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const { id } = await params;
     const body = await request.json();
     const { name, type, currency, notes } = body;
 
     // Verify account belongs to current user
-    const existingAccount = await prisma.account.findUnique({
+    const existingAccount = await prisma.portfolioAccount.findUnique({
       where: { id, userId },
     });
 
@@ -97,7 +103,7 @@ export async function PUT(
       );
     }
 
-    const account = await prisma.account.update({
+    const account = await prisma.portfolioAccount.update({
       where: { id },
       data: {
         name,
@@ -123,11 +129,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const { id } = await params;
 
     // Check if account has assets and belongs to current user
-    const account = await prisma.account.findUnique({
+    const account = await prisma.portfolioAccount.findUnique({
       where: { id, userId },
       include: { _count: { select: { assets: true } } },
     });
@@ -146,7 +155,7 @@ export async function DELETE(
       );
     }
 
-    await prisma.account.delete({
+    await prisma.portfolioAccount.delete({
       where: { id },
     });
 

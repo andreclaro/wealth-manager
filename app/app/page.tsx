@@ -25,6 +25,7 @@ import {
   Package,
 } from "lucide-react";
 import { PortfolioSummary, AssetWithValue, PriceHistoryPoint, AssetFormData } from "@/types";
+import { formatCurrency } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
 export default function Dashboard() {
@@ -34,14 +35,19 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [addingAsset, setAddingAsset] = useState(false);
+  const [historyDays, setHistoryDays] = useState(30);
   const router = useRouter();
 
-  const fetchData = async () => {
+  const fetchData = async (days = historyDays) => {
     try {
+      setLoading(true);
+      const daysParam = days === 0 ? "" : `days=${days}&`;
+      const url = `/api/portfolio/history?${daysParam}includeAssets=true`;
+      console.log("Fetching history:", url, "days:", days);
       const [summaryRes, assetsRes, historyRes] = await Promise.all([
         fetch("/api/portfolio/summary"),
         fetch("/api/assets"),
-        fetch("/api/portfolio/history?days=30"),
+        fetch(url),
       ]);
 
       if (summaryRes.ok) setSummary(await summaryRes.json());
@@ -57,6 +63,11 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData();
   }, []);
+  
+  const handleDaysChange = (days: number) => {
+    setHistoryDays(days);
+    fetchData(days);
+  };
 
   const handleRefreshAll = async () => {
     setRefreshing(true);
@@ -117,14 +128,7 @@ export default function Dashboard() {
     }
   };
 
-  const formatCurrency = (value: number, currency: string) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
+
 
   if (loading) {
     return (
@@ -187,7 +191,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(summary?.totalValueEUR || 0, "EUR")}
+              {formatCurrency(summary?.totalValueEUR || 0, "EUR", { decimals: 0 })}
             </div>
           </CardContent>
         </Card>
@@ -201,7 +205,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(summary?.totalValueUSD || 0, "USD")}
+              {formatCurrency(summary?.totalValueUSD || 0, "USD", { decimals: 0 })}
             </div>
           </CardContent>
         </Card>
@@ -231,8 +235,12 @@ export default function Dashboard() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PortfolioChart summary={summary} currency="EUR" />
-        <PortfolioHistory data={history} />
+        <PortfolioChart summary={summary} assets={assets} currency="EUR" />
+        <PortfolioHistory 
+          data={history} 
+          days={historyDays}
+          onDaysChange={handleDaysChange}
+        />
       </div>
 
       {/* Recent Assets */}
