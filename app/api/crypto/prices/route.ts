@@ -9,6 +9,8 @@ const TOKEN_ID_MAP: Record<string, string> = {
   ETH: "ethereum",
   MATIC: "matic-network",
   BNB: "binancecoin",
+  TRX: "tron",
+  HYPE: "hyperliquid",
   SOL: "solana",
   AVAX: "avalanche-2",
   
@@ -112,6 +114,30 @@ async function fetchEVMPrices(symbols: string[]) {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+function extractDexPairs(data: any): any[] {
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (Array.isArray(data?.pairs)) {
+    return data.pairs;
+  }
+
+  return [];
+}
+
+function pickBestDexPair(pairs: any[]) {
+  if (pairs.length === 0) {
+    return null;
+  }
+
+  return pairs.reduce((best, current) => {
+    const currentLiquidity = current?.liquidity?.usd || 0;
+    const bestLiquidity = best?.liquidity?.usd || 0;
+    return currentLiquidity > bestLiquidity ? current : best;
+  });
+}
+
 async function fetchSolanaPrices(mints: string[]) {
   // Use DexScreener for Solana token prices (free, no API key)
   const prices: Record<string, { usd: number; mint: string }> = {};
@@ -132,11 +158,11 @@ async function fetchSolanaPrices(mints: string[]) {
 
       const data = await response.json();
       
-      if (data && data.length > 0) {
+      const pairs = extractDexPairs(data);
+
+      if (pairs.length > 0) {
         // Get the pair with highest liquidity
-        const bestPair = data.sort((a: any, b: any) => 
-          (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
-        )[0];
+        const bestPair = pickBestDexPair(pairs);
         
         if (bestPair?.priceUsd) {
           prices[mint] = {
@@ -179,15 +205,18 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    
-    if (!data.pairs || data.pairs.length === 0) {
+    const pairs = extractDexPairs(data);
+
+    if (pairs.length === 0) {
       return NextResponse.json({ price: null, found: false });
     }
 
     // Get the highest liquidity pair
-    const bestPair = data.pairs.sort((a: any, b: any) => 
-      (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
-    )[0];
+    const bestPair = pickBestDexPair(pairs);
+
+    if (!bestPair?.priceUsd || !bestPair?.priceNative) {
+      return NextResponse.json({ price: null, found: false });
+    }
 
     return NextResponse.json({
       price: {
