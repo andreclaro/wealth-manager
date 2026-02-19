@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AssetType, Currency } from "@prisma/client";
-
-const DEFAULT_USER_ID = "default-user";
+import { requireAuth } from "@/lib/api";
 
 interface TemplateAsset {
   symbol: string;
@@ -140,6 +139,9 @@ export async function GET() {
 
 // POST /api/import/template - Apply a template
 export async function POST(request: NextRequest) {
+  const { userId, error } = await requireAuth();
+  if (error) return error;
+
   try {
     const body = await request.json();
     const { templateId, customAccountName } = body;
@@ -154,9 +156,9 @@ export async function POST(request: NextRequest) {
     const template = TEMPLATES[templateId];
     const accountName = customAccountName || template.account.name;
 
-    // Check if account already exists
+    // Check if account already exists for this user
     let account = await prisma.portfolioAccount.findFirst({
-      where: { name: accountName },
+      where: { name: accountName, userId },
     });
 
     let accountCreated = false;
@@ -166,7 +168,7 @@ export async function POST(request: NextRequest) {
           name: accountName,
           type: template.account.type,
           currency: template.account.currency,
-          userId: DEFAULT_USER_ID,
+          userId,
         },
       });
       accountCreated = true;
