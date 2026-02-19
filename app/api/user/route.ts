@@ -1,24 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-
-const DEFAULT_USER_ID = "default-user";
+import { getCurrentUserId } from "@/lib/auth";
 
 // GET /api/user - Get current user profile
 export async function GET() {
   try {
-    let user = await prisma.user.findUnique({
-      where: { id: DEFAULT_USER_ID },
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
     });
 
-    // Create default user if not exists
     if (!user) {
-      user = await prisma.user.create({
-        data: {
-          id: DEFAULT_USER_ID,
-          name: "Portfolio User",
-          email: "user@example.com",
-        },
-      });
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     return NextResponse.json(user);
@@ -34,6 +31,11 @@ export async function GET() {
 // PUT /api/user - Update user profile
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { name, email } = body;
 
@@ -53,26 +55,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    let user = await prisma.user.findUnique({
-      where: { id: DEFAULT_USER_ID },
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { name, email },
     });
-
-    if (user) {
-      // Update existing user
-      user = await prisma.user.update({
-        where: { id: DEFAULT_USER_ID },
-        data: { name, email },
-      });
-    } else {
-      // Create new user
-      user = await prisma.user.create({
-        data: {
-          id: DEFAULT_USER_ID,
-          name,
-          email,
-        },
-      });
-    }
 
     return NextResponse.json(user);
   } catch (error) {
