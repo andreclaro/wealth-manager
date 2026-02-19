@@ -13,8 +13,15 @@ export async function GET(request: NextRequest) {
     }
     const { searchParams } = new URL(request.url);
     const daysParam = searchParams.get("days");
-    const days = daysParam ? parseInt(daysParam) : 30;
     const includeAssets = searchParams.get("includeAssets") === "true";
+
+    // Validate and sanitize days parameter (1-365 range)
+    let days = daysParam ? parseInt(daysParam, 10) : 30;
+    if (isNaN(days) || days < 1) {
+      days = 30;
+    } else if (days > 365) {
+      days = 365;
+    }
 
     // Calculate date range (if days is 0, get all history)
     const endDate = new Date();
