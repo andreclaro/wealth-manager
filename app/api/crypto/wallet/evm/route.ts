@@ -57,7 +57,7 @@ const NATIVE_DECIMALS: Record<SupportedChain, number> = {
 const TRONSCAN_API = "https://apilist.tronscanapi.com";
 const HYPERLIQUID_EXPLORER_BASE = "https://app.hyperliquid.xyz/explorer";
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const MAX_HYPERLIQUID_VAULTS_TO_EXPAND = 5;
+const MAX_HYPERLIQUID_VAULTS_TO_EXPAND = 20;
 const HYPERLIQUID_INFO_CLIENT = new InfoClient({
   transport: new HttpTransport({
     timeout: 10_000,
@@ -657,6 +657,12 @@ async function fetchHyperliquidStakingSummary(address: string) {
   });
 }
 
+async function fetchHyperliquidVaultDetails(vaultAddress: string) {
+  return HYPERLIQUID_INFO_CLIENT.vaultDetails({
+    vaultAddress,
+  });
+}
+
 async function fetchHyperliquidVaultAssetBreakdown(vaultEquities: any) {
   const result: {
     tokens: WalletToken[];
@@ -685,27 +691,43 @@ async function fetchHyperliquidVaultAssetBreakdown(vaultEquities: any) {
 
   const settled = await Promise.allSettled(
     entries.map(async (entry) => {
-      const [spotResult, perpResult] = await Promise.allSettled([
-        fetchHyperliquidSpotState(entry.vaultAddress),
-        fetchHyperliquidPerpState(entry.vaultAddress),
-      ]);
+      const accountAddresses = await getHyperliquidVaultAccountAddresses(
+        entry.vaultAddress
+      );
+      const rawTokens: WalletToken[] = [];
 
-      const spotData = spotResult.status === "fulfilled" ? spotResult.value : null;
-      const perpData = perpResult.status === "fulfilled" ? perpResult.value : null;
+      const accountSettled = await Promise.allSettled(
+        accountAddresses.map(async (accountAddress) => {
+          const [spotResult, perpResult] = await Promise.allSettled([
+            fetchHyperliquidSpotState(accountAddress),
+            fetchHyperliquidPerpState(accountAddress),
+          ]);
 
-      if (!spotData && !perpData) {
-        return {
-          vaultAddress: entry.vaultAddress,
-          tokens: [] as WalletToken[],
-        };
+          const spotData =
+            spotResult.status === "fulfilled" ? spotResult.value : null;
+          const perpData =
+            perpResult.status === "fulfilled" ? perpResult.value : null;
+
+          if (!spotData && !perpData) {
+            return [] as WalletToken[];
+          }
+
+          return parseHyperliquidVaultStateTokensRaw({
+            vaultAddress: entry.vaultAddress,
+            accountAddress,
+            spotData,
+            perpData,
+          });
+        })
+      );
+
+      for (const accountEntry of accountSettled) {
+        if (accountEntry.status === "fulfilled") {
+          rawTokens.push(...accountEntry.value);
+        }
       }
 
-      const tokens = parseHyperliquidVaultStateTokens({
-        vaultAddress: entry.vaultAddress,
-        userVaultEquity: entry.equity,
-        spotData,
-        perpData,
-      });
+      const tokens = scaleHyperliquidVaultTokens(rawTokens, entry.equity);
 
       return {
         vaultAddress: entry.vaultAddress,
@@ -729,6 +751,30 @@ async function fetchHyperliquidVaultAssetBreakdown(vaultEquities: any) {
   }
 
   return result;
+}
+
+async function getHyperliquidVaultAccountAddresses(vaultAddress: string) {
+  const addresses = new Set<string>([vaultAddress]);
+
+  try {
+    const details = await fetchHyperliquidVaultDetails(vaultAddress);
+    const childAddresses =
+      details?.relationship?.type === "parent" &&
+      Array.isArray(details?.relationship?.data?.childAddresses)
+        ? details.relationship.data.childAddresses
+        : [];
+
+    for (const childAddress of childAddresses) {
+      const normalized = String(childAddress || "").trim();
+      if (normalized) {
+        addresses.add(normalized);
+      }
+    }
+  } catch {
+    // Best effort: if details fails, still query the vault address itself.
+  }
+
+  return Array.from(addresses);
 }
 
 function parseHyperliquidSpotState(data: any) {
@@ -928,13 +974,13 @@ function parseHyperliquidPerpState(data: any): WalletToken[] {
   return tokens;
 }
 
-function parseHyperliquidVaultStateTokens(params: {
+function parseHyperliquidVaultStateTokensRaw(params: {
   vaultAddress: string;
-  userVaultEquity: number;
+  accountAddress: string;
   spotData: any;
   perpData: any;
 }): WalletToken[] {
-  const { vaultAddress, userVaultEquity, spotData, perpData } = params;
+  const { vaultAddress, accountAddress, spotData, perpData } = params;
 
   const spot = parseHyperliquidSpotState(spotData);
   const perps = parseHyperliquidPerpState(perpData);
@@ -965,7 +1011,33 @@ function parseHyperliquidVaultStateTokens(params: {
     return [];
   }
 
-  const knownValue = vaultTokens.reduce((sum, token) => {
+  const vaultTag = shortenAddress(vaultAddress);
+  const accountTag = shortenAddress(accountAddress);
+  const accountSuffix =
+    accountAddress.toLowerCase() !== vaultAddress.toLowerCase()
+      ? ` [Sub ${accountTag}]`
+      : "";
+
+  return vaultTokens
+    .map((token) => {
+      return {
+        ...token,
+        contractAddress: `${token.contractAddress}:vault:${vaultAddress}:account:${accountAddress}`,
+        name: `${token.name} [Vault ${vaultTag}]${accountSuffix}`,
+      };
+    })
+    .filter((token): token is WalletToken => Boolean(token));
+}
+
+function scaleHyperliquidVaultTokens(
+  tokens: WalletToken[],
+  userVaultEquity: number
+): WalletToken[] {
+  if (tokens.length === 0) {
+    return [];
+  }
+
+  const knownValue = tokens.reduce((sum, token) => {
     if (typeof token.valueUsd === "number" && Number.isFinite(token.valueUsd)) {
       return sum + token.valueUsd;
     }
@@ -981,19 +1053,12 @@ function parseHyperliquidVaultStateTokens(params: {
     return sum;
   }, 0);
 
-  const perpAccountValue = normalizeHyperliquidBalance(
-    perpData?.crossMarginSummary?.accountValue ??
-      perpData?.marginSummary?.accountValue ??
-      perpData?.accountValue
-  );
-  const referenceValue = knownValue > 0 ? knownValue : perpAccountValue;
   const share =
-    referenceValue > 0
-      ? Math.min(1, userVaultEquity / referenceValue)
+    knownValue > 0 && userVaultEquity > 0
+      ? Math.min(1, userVaultEquity / knownValue)
       : 1;
-  const vaultTag = shortenAddress(vaultAddress);
 
-  return vaultTokens
+  return tokens
     .map((token) => {
       const scaledBalance = token.balance * share;
       if (!Number.isFinite(scaledBalance) || scaledBalance <= 0) {
@@ -1010,8 +1075,6 @@ function parseHyperliquidVaultStateTokens(params: {
 
       return {
         ...token,
-        contractAddress: `${token.contractAddress}:vault:${vaultAddress}`,
-        name: `${token.name} [Vault ${vaultTag}]`,
         balance: scaledBalance,
         valueUsd: scaledValue,
       };
