@@ -905,7 +905,6 @@ async function fetchHyperliquidVaultAssetBreakdown(
       const vaultShare = getHyperliquidVaultUserShare({
         details,
         userAddress,
-        fallbackUserEquity: entry.equity,
       });
 
       if (!vaultShare || vaultShare <= 0) {
@@ -1000,9 +999,8 @@ function getHyperliquidVaultAccountAddresses(vaultAddress: string, details: any)
 function getHyperliquidVaultUserShare(params: {
   details: any;
   userAddress: string;
-  fallbackUserEquity: number;
 }) {
-  const { details, userAddress, fallbackUserEquity } = params;
+  const { details, userAddress } = params;
   if (!details || typeof details !== "object") {
     return null;
   }
@@ -1036,10 +1034,6 @@ function getHyperliquidVaultUserShare(params: {
 
   if (userEquity <= 0 && isLeader && leaderEquity > 0) {
     userEquity = leaderEquity;
-  }
-
-  if (userEquity <= 0 && fallbackUserEquity > 0) {
-    userEquity = fallbackUserEquity;
   }
 
   if (totalEquity <= 0 || userEquity <= 0) {
