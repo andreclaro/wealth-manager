@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AssetType, Currency } from "@prisma/client";
 import { fetchAssetName } from "@/lib/services/priceService";
-
-const DEFAULT_USER_ID = "default-user";
+import { requireAuth } from "@/lib/api";
 
 interface CSVRow {
   account: string;
@@ -86,6 +85,9 @@ function validateCurrency(currency: string): Currency | null {
 
 // POST /api/import/csv - Import accounts and assets from CSV
 export async function POST(request: NextRequest) {
+  const { userId, error } = await requireAuth();
+  if (error) return error;
+
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
@@ -216,9 +218,9 @@ export async function POST(request: NextRequest) {
     // Create accounts first
     for (const [accountName, accountData] of accountsToCreate) {
       try {
-        // Check if account already exists
+        // Check if account already exists for this user
         const existingAccount = await prisma.portfolioAccount.findFirst({
-          where: { name: accountName },
+          where: { name: accountName, userId },
         });
 
         if (existingAccount) {
@@ -229,7 +231,7 @@ export async function POST(request: NextRequest) {
               name: accountData.name,
               type: accountData.type,
               currency: accountData.currency,
-              userId: DEFAULT_USER_ID,
+              userId,
             },
           });
           createdAccounts.set(accountName, newAccount.id);
