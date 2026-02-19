@@ -1,4 +1,4 @@
-# Investment Portfolio Service
+# Wealth Manager
 
 ## Project Overview
 

@@ -63,7 +63,7 @@ export default function AppLayout({
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/app" className="flex items-center gap-2 font-bold text-xl">
             <Wallet className="h-6 w-6 text-primary" />
-            <span>Portfolio Tracker</span>
+            <span>Wealth Manager</span>
           </Link>
           <nav className="flex items-center gap-6">
             <Link
@@ -148,7 +148,7 @@ export default function AppLayout({
 
       <footer className="border-t mt-auto">
         <div className="container mx-auto px-4 h-16 flex items-center justify-center text-sm text-muted-foreground">
-          Investment Portfolio Tracker - Track your wealth across all asset classes
+          Wealth Manager - Track your wealth across all asset classes
         </div>
       </footer>
     </div>

@@ -1,4 +1,4 @@
-# Investment Portfolio Service - Design Document
+# Wealth Manager - Design Document
 
 ## Overview
 A full-stack Next.js application for tracking investment portfolios across multiple asset classes with real-time price updates, historical tracking, and multi-currency support.

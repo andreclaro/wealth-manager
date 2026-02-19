@@ -4,7 +4,7 @@ import { Wallet, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
-  title: "Investment Portfolio Tracker - Track Your Wealth",
+  title: "Wealth Manager - Track Your Wealth",
   description: "Track and manage your investment portfolio across multiple asset classes with real-time price updates, historical tracking, and multi-currency support.",
 };
 
@@ -20,7 +20,7 @@ export default function MarketingLayout({
           <div className="container mx-auto px-4 h-16 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2 font-bold text-xl">
               <Wallet className="h-6 w-6 text-primary" />
-              <span>Portfolio Tracker</span>
+              <span>Wealth Manager</span>
             </Link>
             <nav className="flex items-center gap-4">
               <Link
@@ -48,7 +48,7 @@ export default function MarketingLayout({
               <div className="space-y-4">
                 <div className="flex items-center gap-2 font-bold text-lg">
                   <Wallet className="h-5 w-5 text-primary" />
-                  <span>Portfolio Tracker</span>
+                  <span>Wealth Manager</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
                   Track your wealth across all asset classes. Simple, powerful, and secure.
@@ -79,7 +79,7 @@ export default function MarketingLayout({
               </div>
             </div>
             <div className="border-t mt-8 pt-8 text-center text-sm text-muted-foreground">
-              © {new Date().getFullYear()} Portfolio Tracker. All rights reserved.
+              © {new Date().getFullYear()} Wealth Manager. All rights reserved.
             </div>
           </div>
         </footer>

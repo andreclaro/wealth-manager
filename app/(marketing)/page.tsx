@@ -184,7 +184,7 @@ export default function LandingPage() {
           <div className="max-w-3xl mx-auto text-center space-y-6">
             <h2 className="text-3xl font-bold">Ready to Start Tracking?</h2>
             <p className="text-xl text-muted-foreground">
-              Join thousands of investors who trust Portfolio Tracker to manage their wealth.
+              Join thousands of investors who trust Wealth Manager to manage their wealth.
             </p>
             <Button asChild size="lg" className="text-lg px-8">
               <Link href="/login">

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Investment Portfolio Tracker",
+  title: "Wealth Manager",
   description: "Track and manage your investment portfolio across multiple asset classes.",
 };
 
