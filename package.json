@@ -16,7 +16,11 @@
   },
   "overrides": {
     "hono": ">=4.11.7",
-    "lodash": ">=4.17.23"
+    "lodash": ">=4.17.23",
+    "ajv": ">=8.18.0",
+    "minimatch": ">=10.2.1",
+    "@eslint/config-array": ">=0.22.0",
+    "@eslint/eslintrc": ">=3.3.1"
   },
   "pnpm": {
     "overrides": {
