@@ -5,12 +5,50 @@ import {
 } from "@nktkas/hyperliquid";
 import { NextRequest, NextResponse } from "next/server";
 
+const ROUTESCAN_EVM_API_BASE = "https://api.routescan.io/v2/network";
+
+const AVALANCHE_CHAINS = [
+  "avalanche-c",
+  "avalanche-fuji",
+  "avalanche-beam",
+  "avalanche-dfk",
+  "avalanche-dexalot",
+  "avalanche-shrapnel",
+] as const;
+
+const ROUTESCAN_CHAIN_IDS: Record<(typeof AVALANCHE_CHAINS)[number], number> = {
+  "avalanche-c": 43114,
+  "avalanche-fuji": 43113,
+  "avalanche-beam": 4337,
+  "avalanche-dfk": 53935,
+  "avalanche-dexalot": 432204,
+  "avalanche-shrapnel": 2044,
+};
+
 const BLOCKSCOUT_ENDPOINTS = {
   ethereum: ["https://eth.blockscout.com"],
   optimism: ["https://optimism.blockscout.com"],
   base: ["https://base.blockscout.com"],
   arbitrum: ["https://arbitrum.blockscout.com"],
   polygon: ["https://polygon.blockscout.com"],
+  "avalanche-c": [
+    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/43114/etherscan/api`,
+  ],
+  "avalanche-fuji": [
+    `${ROUTESCAN_EVM_API_BASE}/testnet/evm/43113/etherscan/api`,
+  ],
+  "avalanche-beam": [
+    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/4337/etherscan/api`,
+  ],
+  "avalanche-dfk": [
+    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/53935/etherscan/api`,
+  ],
+  "avalanche-dexalot": [
+    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/432204/etherscan/api`,
+  ],
+  "avalanche-shrapnel": [
+    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/2044/etherscan/api`,
+  ],
   hyperliquid: [
     "https://www.hyperscan.com",
     "https://hyperscan.com",
@@ -27,16 +65,24 @@ const AUTO_SCAN_CHAINS = [
   "hyperliquid-mainnet",
   "tron",
   "polygon",
+  ...AVALANCHE_CHAINS,
 ] as const;
 
 type SupportedChain = (typeof AUTO_SCAN_CHAINS)[number];
 type EvmChain = keyof typeof BLOCKSCOUT_ENDPOINTS;
+type AvalancheChain = (typeof AVALANCHE_CHAINS)[number];
 
 const NATIVE_SYMBOLS: Record<SupportedChain, string> = {
   ethereum: "ETH",
   optimism: "ETH",
   base: "ETH",
   arbitrum: "ETH",
+  "avalanche-c": "AVAX",
+  "avalanche-fuji": "AVAX",
+  "avalanche-beam": "BEAM",
+  "avalanche-dfk": "JEWEL",
+  "avalanche-dexalot": "ALOT",
+  "avalanche-shrapnel": "SHRAP",
   hyperliquid: "HYPE",
   "hyperliquid-mainnet": "USDC",
   tron: "TRX",
@@ -48,10 +94,22 @@ const NATIVE_DECIMALS: Record<SupportedChain, number> = {
   optimism: 18,
   base: 18,
   arbitrum: 18,
+  "avalanche-c": 18,
+  "avalanche-fuji": 18,
+  "avalanche-beam": 18,
+  "avalanche-dfk": 18,
+  "avalanche-dexalot": 18,
+  "avalanche-shrapnel": 18,
   hyperliquid: 18,
   "hyperliquid-mainnet": 6,
   tron: 6,
   polygon: 18,
+};
+
+const CHAIN_ALIASES: Record<string, SupportedChain[]> = {
+  avalanche: [...AVALANCHE_CHAINS],
+  avax: [...AVALANCHE_CHAINS],
+  "avalanche-all": [...AVALANCHE_CHAINS],
 };
 
 const TRONSCAN_API = "https://apilist.tronscanapi.com";
@@ -124,7 +182,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: `Unsupported chain: ${chainParam}`,
-        supportedChains: [...AUTO_SCAN_CHAINS],
+        supportedChains: Array.from(
+          new Set([...AUTO_SCAN_CHAINS, ...Object.keys(CHAIN_ALIASES)])
+        ),
       },
       { status: 400 }
     );
@@ -227,6 +287,11 @@ function resolveChains(chainParam: string): SupportedChain[] {
     return [...AUTO_SCAN_CHAINS];
   }
 
+  const aliasChains = CHAIN_ALIASES[chainParam];
+  if (aliasChains) {
+    return [...aliasChains];
+  }
+
   if (isSupportedChain(chainParam)) {
     return [chainParam];
   }
@@ -236,6 +301,10 @@ function resolveChains(chainParam: string): SupportedChain[] {
 
 function isSupportedChain(chain: string): chain is SupportedChain {
   return (AUTO_SCAN_CHAINS as readonly string[]).includes(chain);
+}
+
+function isAvalancheChain(chain: SupportedChain): chain is AvalancheChain {
+  return (AVALANCHE_CHAINS as readonly string[]).includes(chain);
 }
 
 async function scanChain(chain: SupportedChain, evmAddress: string) {
@@ -299,9 +368,11 @@ async function fetchBlockscoutChainDataFromEndpoint(
     return legacyResult;
   }
 
-  const v2Result = await fetchBlockscoutV2Data(chain, address, endpoint);
-  if (v2Result) {
-    return v2Result;
+  if (!isRoutescanLegacyEndpoint(endpoint)) {
+    const v2Result = await fetchBlockscoutV2Data(chain, address, endpoint);
+    if (v2Result) {
+      return v2Result;
+    }
   }
 
   throw new Error(`Blockscout API unsupported on ${chain} (${endpoint})`);
@@ -315,37 +386,32 @@ async function fetchBlockscoutLegacyData(
   const nativeSymbol = NATIVE_SYMBOLS[chain];
   const nativeDecimals = NATIVE_DECIMALS[chain];
 
-  const [nativeBalanceRes, tokensRes] = await Promise.all([
-    fetch(`${endpoint}/api?module=account&action=balance&address=${address}`),
-    fetch(`${endpoint}/api?module=account&action=tokenlist&address=${address}`),
-  ]);
+  const nativeBalanceRes = await fetch(
+    buildLegacyApiUrl(endpoint, {
+      module: "account",
+      action: "balance",
+      address,
+    })
+  );
 
   if (!nativeBalanceRes.ok) {
     return null;
   }
 
-  if (!tokensRes.ok) {
-    return null;
-  }
-
   let nativeBalanceData: any;
-  let tokensData: any;
-
   try {
-    [nativeBalanceData, tokensData] = await Promise.all([
-      nativeBalanceRes.json(),
-      tokensRes.json(),
-    ]);
+    nativeBalanceData = await nativeBalanceRes.json();
   } catch {
     return null;
   }
 
+  const tokenItems = await fetchLegacyTokenItems(endpoint, address);
   const nativeBalance = normalizeAtomicBalance(
-    nativeBalanceData?.result,
+    nativeBalanceData?.result ?? nativeBalanceData?.balance,
     nativeDecimals
   );
 
-  const tokens = (Array.isArray(tokensData?.result) ? tokensData.result : [])
+  const tokens = tokenItems
     .map((item: any): WalletToken | null =>
       mapBlockscoutToken(item, chain, endpoint)
     )
@@ -368,6 +434,100 @@ async function fetchBlockscoutLegacyData(
   };
 }
 
+async function fetchLegacyTokenItems(endpoint: string, address: string): Promise<any[]> {
+  const tokenEndpoints = [
+    buildLegacyApiUrl(endpoint, {
+      module: "account",
+      action: "tokenlist",
+      address,
+    }),
+    buildLegacyApiUrl(endpoint, {
+      module: "account",
+      action: "addresstokenbalance",
+      address,
+      page: "1",
+      offset: "200",
+    }),
+  ];
+
+  for (const tokenEndpoint of tokenEndpoints) {
+    try {
+      const response = await fetch(tokenEndpoint);
+      if (!response.ok) {
+        continue;
+      }
+
+      const payload = await response.json();
+      const items = extractLegacyTokenItems(payload);
+      if (items) {
+        return items;
+      }
+    } catch {
+      // Try next endpoint.
+    }
+  }
+
+  return [];
+}
+
+function extractLegacyTokenItems(payload: any): any[] | null {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (Array.isArray(payload?.result)) {
+    return payload.result;
+  }
+
+  if (Array.isArray(payload?.result?.items)) {
+    return payload.result.items;
+  }
+
+  if (Array.isArray(payload?.result?.tokens)) {
+    return payload.result.tokens;
+  }
+
+  if (Array.isArray(payload?.items)) {
+    return payload.items;
+  }
+
+  if (Array.isArray(payload?.data)) {
+    return payload.data;
+  }
+
+  const resultMessage =
+    typeof payload?.result === "string" ? payload.result.toLowerCase() : "";
+  if (
+    resultMessage.includes("no transactions found") ||
+    resultMessage.includes("no records found") ||
+    resultMessage.includes("no tokens found")
+  ) {
+    return [];
+  }
+
+  return null;
+}
+
+function buildLegacyApiUrl(endpoint: string, params: Record<string, string>) {
+  const normalizedEndpoint = endpoint.endsWith("/api")
+    ? endpoint
+    : `${endpoint.replace(/\/$/, "")}/api`;
+  const url = new URL(normalizedEndpoint);
+
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+
+  return url.toString();
+}
+
+function isRoutescanLegacyEndpoint(endpoint: string) {
+  return (
+    endpoint.includes("api.routescan.io/v2/network") &&
+    endpoint.includes("/etherscan/api")
+  );
+}
+
 async function fetchBlockscoutV2Data(
   chain: EvmChain,
   address: string,
@@ -377,8 +537,8 @@ async function fetchBlockscoutV2Data(
   const nativeDecimals = NATIVE_DECIMALS[chain];
 
   const [addressRes, tokenBalancesRes] = await Promise.all([
-    fetch(`${endpoint}/api/v2/addresses/${address}`),
-    fetch(`${endpoint}/api/v2/addresses/${address}/token-balances`),
+    fetch(buildBlockscoutV2ApiUrl(endpoint, `/addresses/${address}`)),
+    fetch(buildBlockscoutV2ApiUrl(endpoint, `/addresses/${address}/token-balances`)),
   ]);
 
   if (!addressRes.ok || !tokenBalancesRes.ok) {
@@ -433,32 +593,66 @@ async function fetchBlockscoutV2Data(
   };
 }
 
+function buildBlockscoutV2ApiUrl(endpoint: string, path: string) {
+  const normalizedEndpoint = endpoint.endsWith("/api")
+    ? endpoint.replace(/\/api$/, "")
+    : endpoint;
+  return `${normalizedEndpoint}/api/v2${path}`;
+}
+
 function mapBlockscoutToken(
   item: any,
   chain: EvmChain,
   endpoint: string
 ): WalletToken | null {
-  const contractAddress = item?.contractAddress || item?.contract_address;
+  const contractAddress =
+    item?.contractAddress ||
+    item?.contract_address ||
+    item?.tokenAddress ||
+    item?.token_address ||
+    item?.TokenAddress;
   if (!contractAddress) {
     return null;
   }
 
-  const decimals = normalizeDecimals(item?.decimals, 18);
-  const balance = normalizeAtomicBalance(item?.balance, decimals);
+  const decimals = normalizeDecimals(
+    item?.decimals ??
+      item?.tokenDecimal ??
+      item?.token_decimal ??
+      item?.TokenDecimal ??
+      item?.TokenDivisor ??
+      item?.divisor,
+    18
+  );
+  const balance = normalizeAtomicBalance(
+    item?.balance ??
+      item?.tokenBalance ??
+      item?.token_balance ??
+      item?.TokenQuantity ??
+      item?.value ??
+      item?.amount,
+    decimals
+  );
 
   if (balance <= 0) {
     return null;
   }
 
   return {
-    contractAddress,
-    symbol: String(item?.symbol || "UNKNOWN"),
-    name: String(item?.name || "Unknown Token"),
+    contractAddress: String(contractAddress),
+    symbol: String(
+      item?.symbol ?? item?.tokenSymbol ?? item?.TokenSymbol ?? "UNKNOWN"
+    ),
+    name: String(
+      item?.name ?? item?.tokenName ?? item?.TokenName ?? "Unknown Token"
+    ),
     decimals,
     balance,
-    type: String(item?.type || "ERC-20"),
+    type: String(
+      item?.type ?? item?.tokenType ?? item?.TokenType ?? "ERC-20"
+    ),
     chain,
-    explorerUrl: `${endpoint}/token/${contractAddress}`,
+    explorerUrl: getTokenExplorerUrl(chain, String(contractAddress), endpoint),
   };
 }
 
@@ -497,7 +691,7 @@ function mapBlockscoutV2Token(
     balance,
     type: String(tokenMeta?.type || item?.type || "ERC-20"),
     chain,
-    explorerUrl: `${endpoint}/token/${contractAddress}`,
+    explorerUrl: getTokenExplorerUrl(chain, String(contractAddress), endpoint),
   };
 }
 
@@ -583,7 +777,10 @@ async function fetchHyperliquidMainnetData(address: string): Promise<ChainScanRe
 
   const spot = parseHyperliquidSpotState(spotData);
   const perps = parseHyperliquidPerpState(perpData);
-  const vaultBreakdown = await fetchHyperliquidVaultAssetBreakdown(vaultData);
+  const vaultBreakdown = await fetchHyperliquidVaultAssetBreakdown(
+    vaultData,
+    address
+  );
   const vaults = [
     ...vaultBreakdown.tokens,
     ...parseHyperliquidVaultEquities(vaultData, {
@@ -657,13 +854,17 @@ async function fetchHyperliquidStakingSummary(address: string) {
   });
 }
 
-async function fetchHyperliquidVaultDetails(vaultAddress: string) {
+async function fetchHyperliquidVaultDetails(vaultAddress: string, user?: string) {
   return HYPERLIQUID_INFO_CLIENT.vaultDetails({
     vaultAddress,
+    user,
   });
 }
 
-async function fetchHyperliquidVaultAssetBreakdown(vaultEquities: any) {
+async function fetchHyperliquidVaultAssetBreakdown(
+  vaultEquities: any,
+  userAddress: string
+) {
   const result: {
     tokens: WalletToken[];
     resolvedVaultAddresses: Set<string>;
@@ -691,8 +892,32 @@ async function fetchHyperliquidVaultAssetBreakdown(vaultEquities: any) {
 
   const settled = await Promise.allSettled(
     entries.map(async (entry) => {
-      const accountAddresses = await getHyperliquidVaultAccountAddresses(
-        entry.vaultAddress
+      let details: any = null;
+      try {
+        details = await fetchHyperliquidVaultDetails(
+          entry.vaultAddress,
+          userAddress
+        );
+      } catch {
+        details = null;
+      }
+
+      const vaultShare = getHyperliquidVaultUserShare({
+        details,
+        userAddress,
+        fallbackUserEquity: entry.equity,
+      });
+
+      if (!vaultShare || vaultShare <= 0) {
+        return {
+          vaultAddress: entry.vaultAddress,
+          tokens: [] as WalletToken[],
+        };
+      }
+
+      const accountAddresses = getHyperliquidVaultAccountAddresses(
+        entry.vaultAddress,
+        details
       );
       const rawTokens: WalletToken[] = [];
 
@@ -727,7 +952,7 @@ async function fetchHyperliquidVaultAssetBreakdown(vaultEquities: any) {
         }
       }
 
-      const tokens = scaleHyperliquidVaultTokens(rawTokens, entry.equity);
+      const tokens = scaleHyperliquidVaultTokens(rawTokens, vaultShare);
 
       return {
         vaultAddress: entry.vaultAddress,
@@ -753,28 +978,80 @@ async function fetchHyperliquidVaultAssetBreakdown(vaultEquities: any) {
   return result;
 }
 
-async function getHyperliquidVaultAccountAddresses(vaultAddress: string) {
+function getHyperliquidVaultAccountAddresses(vaultAddress: string, details: any) {
   const addresses = new Set<string>([vaultAddress]);
 
-  try {
-    const details = await fetchHyperliquidVaultDetails(vaultAddress);
-    const childAddresses =
-      details?.relationship?.type === "parent" &&
-      Array.isArray(details?.relationship?.data?.childAddresses)
-        ? details.relationship.data.childAddresses
-        : [];
+  const childAddresses =
+    details?.relationship?.type === "parent" &&
+    Array.isArray(details?.relationship?.data?.childAddresses)
+      ? details.relationship.data.childAddresses
+      : [];
 
-    for (const childAddress of childAddresses) {
-      const normalized = String(childAddress || "").trim();
-      if (normalized) {
-        addresses.add(normalized);
-      }
+  for (const childAddress of childAddresses) {
+    const normalized = String(childAddress || "").trim();
+    if (normalized) {
+      addresses.add(normalized);
     }
-  } catch {
-    // Best effort: if details fails, still query the vault address itself.
   }
 
   return Array.from(addresses);
+}
+
+function getHyperliquidVaultUserShare(params: {
+  details: any;
+  userAddress: string;
+  fallbackUserEquity: number;
+}) {
+  const { details, userAddress, fallbackUserEquity } = params;
+  if (!details || typeof details !== "object") {
+    return null;
+  }
+
+  const followers = Array.isArray(details?.followers) ? details.followers : [];
+  const userAddressLower = userAddress.toLowerCase();
+  const leaderAddressLower = String(details?.leader || "").toLowerCase();
+  const isLeader = userAddressLower !== "" && userAddressLower === leaderAddressLower;
+
+  let totalEquity = 0;
+  let userEquity = normalizeHyperliquidBalance(details?.followerState?.vaultEquity);
+  let leaderEquity = 0;
+
+  for (const follower of followers) {
+    const followerEquity = normalizeHyperliquidBalance(follower?.vaultEquity);
+    if (followerEquity <= 0) {
+      continue;
+    }
+
+    totalEquity += followerEquity;
+
+    const followerUser = String(follower?.user || "").toLowerCase();
+    if (followerUser === userAddressLower) {
+      userEquity = Math.max(userEquity, followerEquity);
+    }
+
+    if (followerUser === "leader") {
+      leaderEquity = Math.max(leaderEquity, followerEquity);
+    }
+  }
+
+  if (userEquity <= 0 && isLeader && leaderEquity > 0) {
+    userEquity = leaderEquity;
+  }
+
+  if (userEquity <= 0 && fallbackUserEquity > 0) {
+    userEquity = fallbackUserEquity;
+  }
+
+  if (totalEquity <= 0 || userEquity <= 0) {
+    return null;
+  }
+
+  const rawShare = userEquity / totalEquity;
+  if (!Number.isFinite(rawShare) || rawShare <= 0) {
+    return null;
+  }
+
+  return Math.min(1, rawShare);
 }
 
 function parseHyperliquidSpotState(data: any) {
@@ -1031,43 +1308,28 @@ function parseHyperliquidVaultStateTokensRaw(params: {
 
 function scaleHyperliquidVaultTokens(
   tokens: WalletToken[],
-  userVaultEquity: number
+  share: number
 ): WalletToken[] {
   if (tokens.length === 0) {
     return [];
   }
 
-  const knownValue = tokens.reduce((sum, token) => {
-    if (typeof token.valueUsd === "number" && Number.isFinite(token.valueUsd)) {
-      return sum + token.valueUsd;
-    }
+  if (!Number.isFinite(share) || share <= 0) {
+    return [];
+  }
 
-    if (
-      typeof token.priceUsd === "number" &&
-      Number.isFinite(token.priceUsd) &&
-      Number.isFinite(token.balance)
-    ) {
-      return sum + token.balance * token.priceUsd;
-    }
-
-    return sum;
-  }, 0);
-
-  const share =
-    knownValue > 0 && userVaultEquity > 0
-      ? Math.min(1, userVaultEquity / knownValue)
-      : 1;
+  const clampedShare = Math.min(1, share);
 
   return tokens
     .map((token) => {
-      const scaledBalance = token.balance * share;
+      const scaledBalance = token.balance * clampedShare;
       if (!Number.isFinite(scaledBalance) || scaledBalance <= 0) {
         return null;
       }
 
       const scaledValue =
         typeof token.valueUsd === "number" && Number.isFinite(token.valueUsd)
-          ? token.valueUsd * share
+          ? token.valueUsd * clampedShare
           : typeof token.priceUsd === "number" &&
               Number.isFinite(token.priceUsd)
             ? scaledBalance * token.priceUsd
@@ -1266,7 +1528,27 @@ function getAddressExplorerUrl(chain: SupportedChain, address: string) {
     return `${HYPERLIQUID_EXPLORER_BASE}/address/${address}`;
   }
 
-  return `${BLOCKSCOUT_ENDPOINTS[chain][0]}/address/${address}`;
+  if (isAvalancheChain(chain)) {
+    return `https://routescan.io/address/${address}?chainid=${ROUTESCAN_CHAIN_IDS[chain]}`;
+  }
+
+  return `${getExplorerBaseUrl(BLOCKSCOUT_ENDPOINTS[chain][0])}/address/${address}`;
+}
+
+function getTokenExplorerUrl(
+  chain: EvmChain,
+  tokenAddress: string,
+  endpoint: string
+) {
+  if (isAvalancheChain(chain)) {
+    return `https://routescan.io/token/${tokenAddress}?chainid=${ROUTESCAN_CHAIN_IDS[chain]}`;
+  }
+
+  return `${getExplorerBaseUrl(endpoint)}/token/${tokenAddress}`;
+}
+
+function getExplorerBaseUrl(endpoint: string) {
+  return endpoint.replace(/\/api\/?$/, "");
 }
 
 function getHyperliquidTokenExplorerUrl(symbol: string, marketType: "spot" | "perp") {
