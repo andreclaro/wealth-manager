@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error applying template:", error);
     return NextResponse.json(
-      { error: "Failed to apply template: " + (error as Error).message },
+      { error: "Failed to apply template" },
       { status: 500 }
     );
   }

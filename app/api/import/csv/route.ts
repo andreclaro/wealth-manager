@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
           success: false,
           row: 0,
           account: accountName,
-          error: `Failed to create account: ${(error as Error).message}`,
+          error: "Failed to create account",
         });
       }
     }
@@ -338,7 +338,7 @@ export async function POST(request: NextRequest) {
           row: rowNum,
           account: row.account,
           symbol: row.symbol,
-          error: `Failed to create asset: ${(error as Error).message}`,
+          error: "Failed to create asset",
         });
       }
     }
@@ -354,7 +354,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error importing CSV:", error);
     return NextResponse.json(
-      { error: "Failed to import CSV: " + (error as Error).message },
+      { error: "Failed to import CSV" },
       { status: 500 }
     );
   }

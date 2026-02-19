@@ -173,7 +173,7 @@ export default function ProfilePage() {
       }
     } catch (error) {
       console.error("Error restoring backup:", error);
-      alert("Failed to restore backup: " + (error as Error).message);
+      alert("Failed to restore backup");
     } finally {
       setIsSubmitting(false);
     }
