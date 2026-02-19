@@ -1,21 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Wallet, 
   Search, 
   Loader2, 
   Coins, 
   DollarSign, 
-  RefreshCw,
   AlertCircle,
   CheckCircle2,
   ExternalLink
@@ -24,6 +23,8 @@ import {
 interface Token {
   contractAddress?: string;
   mint?: string;
+  chain?: string;
+  explorerUrl?: string;
   symbol: string;
   name: string;
   decimals: number;
@@ -37,29 +38,79 @@ interface Token {
   spam?: boolean;
 }
 
+interface NativeBalance {
+  chain?: string;
+  symbol: string;
+  balance: number;
+  decimals: number;
+  priceUsd?: number;
+  valueUsd?: number;
+  explorerUrl?: string;
+}
+
+interface ChainResult {
+  chain: string;
+  source: string;
+  status: "ok" | "error";
+  tokenCount: number;
+  nativeBalance?: number;
+  nativeSymbol?: string;
+  error?: string;
+}
+
 interface WalletData {
   address: string;
   chain: string;
-  nativeBalance: {
-    symbol: string;
-    balance: number;
-    decimals: number;
-    priceUsd?: number;
-    valueUsd?: number;
-  };
+  nativeBalance: NativeBalance;
+  nativeBalances?: NativeBalance[];
   tokens: Token[];
   tokenCount: number;
+  chainsSearched?: string[];
+  chainResults?: ChainResult[];
   fetchedAt: string;
 }
 
-const EVM_CHAINS = [
-  { value: "ethereum", label: "Ethereum", native: "ETH" },
-  { value: "polygon", label: "Polygon", native: "MATIC" },
-  { value: "base", label: "Base", native: "ETH" },
-  { value: "arbitrum", label: "Arbitrum", native: "ETH" },
-  { value: "optimism", label: "Optimism", native: "ETH" },
-  { value: "bsc", label: "BSC", native: "BNB" },
-];
+const getTokenUsdValue = (token: Token) =>
+  token.valueUsd ??
+  (typeof token.priceUsd === "number"
+    ? token.balance * token.priceUsd
+    : 0);
+
+const sortTokensByUsdValue = (tokens: Token[]) =>
+  [...tokens].sort((a, b) => {
+    const valueDiff = getTokenUsdValue(b) - getTokenUsdValue(a);
+    if (valueDiff !== 0) {
+      return valueDiff;
+    }
+
+    return b.balance - a.balance;
+  });
+
+const parseErrorResponse = async (response: Response) => {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      const json = await response.json();
+      if (json?.error) {
+        return String(json.error);
+      }
+    } catch {
+      // Ignore JSON parse failures and fallback to text.
+    }
+  }
+
+  try {
+    const text = await response.text();
+    if (text.includes("<!DOCTYPE")) {
+      return `Request failed with status ${response.status}. The server returned an HTML error page.`;
+    }
+
+    return text || `Request failed with status ${response.status}`;
+  } catch {
+    return `Request failed with status ${response.status}`;
+  }
+};
 
 const SAMPLE_WALLETS = {
   ethereum: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", // vitalik.eth
@@ -69,13 +120,50 @@ const SAMPLE_WALLETS = {
 export default function CryptoPlaygroundPage() {
   const [activeTab, setActiveTab] = useState("evm");
   const [evmAddress, setEvmAddress] = useState("");
-  const [evmChain, setEvmChain] = useState("ethereum");
   const [solanaAddress, setSolanaAddress] = useState("");
+  const [tokenSearch, setTokenSearch] = useState("");
+  const [chainFilter, setChainFilter] = useState("all");
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [walletData, setWalletData] = useState<WalletData | null>(null);
-  const [prices, setPrices] = useState<Record<string, any>>({});
+
+  const resetTokenFilters = () => {
+    setTokenSearch("");
+    setChainFilter("all");
+  };
+
+  const availableChains = useMemo(() => {
+    if (!walletData) return [];
+
+    return [...new Set(
+      walletData.tokens.map((token) => token.chain || walletData.chain || "unknown")
+    )].sort((a, b) => a.localeCompare(b));
+  }, [walletData]);
+
+  const filteredTokens = useMemo(() => {
+    if (!walletData) return [];
+
+    const query = tokenSearch.trim().toLowerCase();
+
+    return walletData.tokens.filter((token) => {
+      const tokenChain = token.chain || walletData.chain || "unknown";
+      const matchesChain = chainFilter === "all" || tokenChain === chainFilter;
+
+      if (!matchesChain) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      const tokenSymbol = token.symbol?.toLowerCase() || "";
+      const tokenName = token.name?.toLowerCase() || "";
+
+      return tokenSymbol.includes(query) || tokenName.includes(query);
+    });
+  }, [walletData, tokenSearch, chainFilter]);
 
   const fetchEVMWallet = async () => {
     const address = evmAddress.trim();
@@ -87,15 +175,14 @@ export default function CryptoPlaygroundPage() {
     setLoading(true);
     setError(null);
     setWalletData(null);
+    resetTokenFilters();
 
     try {
-      const response = await fetch(
-        `/api/crypto/wallet/evm?address=${address}&chain=${evmChain}`
-      );
+      const response = await fetch(`/api/crypto/wallet/evm?address=${address}`);
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to fetch wallet");
+        const errorMessage = await parseErrorResponse(response);
+        throw new Error(errorMessage || "Failed to fetch wallet");
       }
 
       const data = await response.json();
@@ -120,6 +207,7 @@ export default function CryptoPlaygroundPage() {
     setLoading(true);
     setError(null);
     setWalletData(null);
+    resetTokenFilters();
 
     try {
       const response = await fetch(
@@ -127,8 +215,8 @@ export default function CryptoPlaygroundPage() {
       );
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to fetch wallet");
+        const errorMessage = await parseErrorResponse(response);
+        throw new Error(errorMessage || "Failed to fetch wallet");
       }
 
       const data = await response.json();
@@ -145,43 +233,38 @@ export default function CryptoPlaygroundPage() {
 
   const fetchPrices = async (data: WalletData) => {
     try {
-      // Use new batch price API that fetches by contract address
+      const nativeEntries =
+        data.nativeBalances && data.nativeBalances.length > 0
+          ? data.nativeBalances
+          : [data.nativeBalance];
+
+      const nativeTokensForPricing = nativeEntries.map((native) => ({
+        symbol: native.symbol,
+        balance: native.balance,
+        chain: native.chain,
+      }));
+
       const response = await fetch(`/api/crypto/prices/batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tokens: data.tokens,
+          tokens: [...data.tokens, ...nativeTokensForPricing],
           chain: data.chain,
         }),
       });
 
       if (response.ok) {
         const priceData = await response.json();
-        const prices = priceData.prices || {};
-        setPrices(prices);
+        const priceMap = priceData.prices || {};
 
         // Update wallet data with prices
-        const updatedData = { ...data };
+        const updatedData: WalletData = { ...data };
 
-        // Try to get native token price
-        const nativeSymbol = data.nativeBalance.symbol;
-        const nativePrice =
-          prices[nativeSymbol] ||
-          Object.values(prices).find(
-            (p: any) => p && (p.symbol === nativeSymbol || p.id === nativeSymbol)
-          );
-
-        if (nativePrice?.usd) {
-          updatedData.nativeBalance.priceUsd = nativePrice.usd;
-          updatedData.nativeBalance.valueUsd =
-            data.nativeBalance.balance * nativePrice.usd;
-        }
-
-        updatedData.tokens = data.tokens.map((token) => {
+        updatedData.tokens = sortTokensByUsdValue(data.tokens.map((token) => {
           const priceInfo =
-            prices[token.contractAddress || ""] ||
-            prices[token.mint || ""] ||
-            prices[token.symbol?.toUpperCase() || ""];
+            priceMap[token.contractAddress || ""] ||
+            priceMap[token.mint || ""] ||
+            priceMap[token.symbol?.toUpperCase() || ""];
 
           if (priceInfo?.usd) {
             return {
@@ -193,7 +276,33 @@ export default function CryptoPlaygroundPage() {
             };
           }
           return token;
+        }));
+
+        updatedData.nativeBalances = nativeEntries.map((native) => {
+          const symbolKey = native.symbol?.toUpperCase() || "";
+          const priceInfo = priceMap[symbolKey];
+
+          if (priceInfo?.usd) {
+            return {
+              ...native,
+              priceUsd: priceInfo.usd,
+              valueUsd: native.balance * priceInfo.usd,
+            };
+          }
+
+          return native;
         });
+
+        const primaryNative =
+          updatedData.nativeBalances.find(
+            (native) =>
+              native.chain &&
+              native.chain === data.nativeBalance.chain
+          ) || updatedData.nativeBalances[0];
+
+        if (primaryNative) {
+          updatedData.nativeBalance = primaryNative;
+        }
 
         setWalletData(updatedData);
       }
@@ -233,8 +342,10 @@ export default function CryptoPlaygroundPage() {
           updatedData.nativeBalance.valueUsd = data.nativeBalance.balance * solPriceInfo.usd;
         }
 
-        updatedData.tokens = data.tokens.map((token) => {
-          const priceInfo = prices[token.mint || ""];
+        updatedData.tokens = sortTokensByUsdValue(data.tokens.map((token) => {
+          const priceInfo =
+            prices[token.mint || ""] ||
+            prices[token.symbol?.toUpperCase() || ""];
           if (priceInfo?.usd) {
             return {
               ...token,
@@ -245,7 +356,7 @@ export default function CryptoPlaygroundPage() {
             };
           }
           return token;
-        });
+        }));
 
         setWalletData(updatedData);
       }
@@ -274,7 +385,12 @@ export default function CryptoPlaygroundPage() {
 
   const getTotalValue = () => {
     if (!walletData) return 0;
-    let total = walletData.nativeBalance.valueUsd || 0;
+    const nativeTotal =
+      walletData.nativeBalances && walletData.nativeBalances.length > 0
+        ? walletData.nativeBalances.reduce((sum, native) => sum + (native.valueUsd || 0), 0)
+        : walletData.nativeBalance.valueUsd || 0;
+
+    let total = nativeTotal;
     total += walletData.tokens.reduce((sum, t) => sum + (t.valueUsd || 0), 0);
     return total;
   };
@@ -306,48 +422,31 @@ export default function CryptoPlaygroundPage() {
                 Fetch EVM Wallet
               </CardTitle>
               <CardDescription>
-                Uses Blockscout API (free, no API key) to discover all tokens
+                Automatically scans Ethereum, Optimism, Base, Arbitrum, Hyperliquid (HyperEVM + Mainnet), Tron, and Polygon
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="md:col-span-1">
-                  <Label htmlFor="evm-chain">Chain</Label>
-                  <Select value={evmChain} onValueChange={setEvmChain}>
-                    <SelectTrigger id="evm-chain">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EVM_CHAINS.map((chain) => (
-                        <SelectItem key={chain.value} value={chain.value}>
-                          {chain.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="md:col-span-3">
-                  <Label htmlFor="evm-address">Wallet Address</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="evm-address"
-                      placeholder="0x..."
-                      value={evmAddress}
-                      onChange={(e) => setEvmAddress(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && fetchEVMWallet()}
-                    />
-                    <Button 
-                      onClick={fetchEVMWallet} 
-                      disabled={loading}
-                      className="shrink-0"
-                    >
-                      {loading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Search className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
+              <div>
+                <Label htmlFor="evm-address">Wallet Address</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="evm-address"
+                    placeholder="0x..."
+                    value={evmAddress}
+                    onChange={(e) => setEvmAddress(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && fetchEVMWallet()}
+                  />
+                  <Button 
+                    onClick={fetchEVMWallet} 
+                    disabled={loading}
+                    className="shrink-0"
+                  >
+                    {loading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
               </div>
 
@@ -366,6 +465,7 @@ export default function CryptoPlaygroundPage() {
                     setEvmAddress("");
                     setWalletData(null);
                     setError(null);
+                    resetTokenFilters();
                   }}
                 >
                   Clear
@@ -427,6 +527,7 @@ export default function CryptoPlaygroundPage() {
                     setSolanaAddress("");
                     setWalletData(null);
                     setError(null);
+                    resetTokenFilters();
                   }}
                 >
                   Clear
@@ -486,12 +587,47 @@ export default function CryptoPlaygroundPage() {
                 <div className="bg-muted p-4 rounded-lg">
                   <div className="text-sm text-muted-foreground flex items-center gap-1">
                     <Coins className="h-4 w-4" />
-                    Native Balance
+                    Native Assets
                   </div>
-                  <div className="text-2xl font-bold mt-1">
-                    {formatNumber(walletData.nativeBalance.balance, 6)} {walletData.nativeBalance.symbol}
-                  </div>
-                  {walletData.nativeBalance.valueUsd !== undefined && (
+                  {walletData.nativeBalances && walletData.nativeBalances.length > 1 ? (
+                    <>
+                      <div className="text-2xl font-bold mt-1">
+                        {walletData.nativeBalances.length} chains
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {walletData.nativeBalances
+                          .slice(0, 3)
+                          .map(
+                            (native) =>
+                              `${native.symbol} (${native.chain || "unknown"})`
+                          )
+                          .join(" • ")}
+                      </div>
+                      <div className="text-sm text-green-600">
+                        {formatCurrency(
+                          walletData.nativeBalances.reduce(
+                            (sum, native) => sum + (native.valueUsd || 0),
+                            0
+                          )
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-2xl font-bold mt-1">
+                        {formatNumber(walletData.nativeBalance.balance, 6)}{" "}
+                        {walletData.nativeBalance.symbol}
+                      </div>
+                      {walletData.nativeBalance.chain && (
+                        <div className="text-xs text-muted-foreground">
+                          Chain: {walletData.nativeBalance.chain}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {walletData.nativeBalance.valueUsd !== undefined &&
+                    (!walletData.nativeBalances ||
+                      walletData.nativeBalances.length <= 1) && (
                     <div className="text-sm text-green-600">
                       {formatCurrency(walletData.nativeBalance.valueUsd)}
                     </div>
@@ -507,7 +643,7 @@ export default function CryptoPlaygroundPage() {
                     {walletData.tokenCount}
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    SPL / ERC-20 tokens
+                    SPL / ERC-20 / TRC tokens
                   </div>
                 </div>
 
@@ -524,6 +660,19 @@ export default function CryptoPlaygroundPage() {
                   </div>
                 </div>
               </div>
+              {walletData.chainResults && walletData.chainResults.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {walletData.chainResults.map((result) => (
+                    <Badge
+                      key={result.chain}
+                      variant={result.status === "ok" ? "secondary" : "destructive"}
+                      className="text-xs"
+                    >
+                      {result.chain}: {result.status === "ok" ? `${result.tokenCount} tokens` : "error"}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -532,13 +681,45 @@ export default function CryptoPlaygroundPage() {
             <CardHeader>
               <CardTitle>Token Holdings</CardTitle>
               <CardDescription>
-                Discovered {walletData.tokens.length} tokens
+                Showing {filteredTokens.length} of {walletData.tokens.length} tokens
+                {walletData.chainsSearched?.length
+                  ? ` across ${walletData.chainsSearched.length} chains`
+                  : ""}
               </CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 flex flex-col gap-3 md:flex-row">
+                <div className="relative flex-1">
+                  <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={tokenSearch}
+                    onChange={(event) => setTokenSearch(event.target.value)}
+                    placeholder="Filter by token name or symbol..."
+                    className="pl-9"
+                  />
+                </div>
+                <Select value={chainFilter} onValueChange={setChainFilter}>
+                  <SelectTrigger className="w-full md:w-[220px]">
+                    <SelectValue placeholder="All chains" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All chains</SelectItem>
+                    {availableChains.map((chain) => (
+                      <SelectItem key={chain} value={chain}>
+                        {chain}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               {walletData.tokens.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No tokens found (other than native balance)
+                </div>
+              ) : filteredTokens.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No tokens match your current filters
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -546,6 +727,7 @@ export default function CryptoPlaygroundPage() {
                     <thead>
                       <tr className="border-b">
                         <th className="text-left py-3 px-2">Token</th>
+                        <th className="text-left py-3 px-2 hidden md:table-cell">Chain</th>
                         <th className="text-left py-3 px-2">Balance</th>
                         <th className="text-left py-3 px-2">Price (USD)</th>
                         <th className="text-left py-3 px-2">Value (USD)</th>
@@ -553,7 +735,7 @@ export default function CryptoPlaygroundPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {walletData.tokens.map((token, idx) => (
+                      {filteredTokens.map((token, idx) => (
                         <tr key={idx} className={`border-b last:border-0 hover:bg-muted/50 ${token.spam ? 'opacity-50' : ''}`}>
                           <td className="py-3 px-2">
                             <div className="flex items-center gap-2">
@@ -571,6 +753,11 @@ export default function CryptoPlaygroundPage() {
                                 via {token.priceSource}
                               </div>
                             )}
+                          </td>
+                          <td className="py-3 px-2 hidden md:table-cell">
+                            <span className="capitalize text-muted-foreground">
+                              {token.chain || walletData.chain}
+                            </span>
                           </td>
                           <td className="py-3 px-2">
                             {formatNumber(token.balance, token.decimals > 6 ? 4 : token.decimals)}
@@ -599,19 +786,35 @@ export default function CryptoPlaygroundPage() {
                             )}
                           </td>
                           <td className="py-3 px-2 hidden md:table-cell">
-                            <a
-                              href={
-                                activeTab === "solana"
+                            {(() => {
+                              const fallbackUrl =
+                                token.mint
                                   ? `https://solscan.io/token/${token.mint}`
-                                  : `https://${walletData.chain}.blockscout.com/token/${token.contractAddress}`
+                                  : token.contractAddress
+                                    ? `https://${
+                                        token.chain || walletData.chain
+                                      }.blockscout.com/token/${token.contractAddress}`
+                                    : undefined;
+                              const url = token.explorerUrl || fallbackUrl;
+
+                              if (!url) {
+                                return <span className="text-muted-foreground">-</span>;
                               }
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs font-mono text-primary hover:underline flex items-center gap-1"
-                            >
-                              {(token.mint || token.contractAddress || "").slice(0, 8)}...
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
+
+                              return (
+                                <a
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-mono text-primary hover:underline flex items-center gap-1"
+                                >
+                                  {(token.mint || token.contractAddress || token.symbol || "")
+                                    .slice(0, 8)}
+                                  ...
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              );
+                            })()}
                           </td>
                         </tr>
                       ))}
@@ -643,10 +846,10 @@ export default function CryptoPlaygroundPage() {
             <CardTitle className="text-sm">EVM Chains API</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-2">
-            <p><strong>Source:</strong> Blockscout API</p>
+            <p><strong>Sources:</strong> Blockscout + TronScan</p>
             <p><strong>Cost:</strong> 100% Free, no API key</p>
-            <p><strong>Rate Limit:</strong> ~10 requests/second</p>
-            <p><strong>Features:</strong> Native balance, all ERC-20 tokens, token metadata</p>
+            <p><strong>Rate Limit:</strong> Chain-dependent public API limits</p>
+            <p><strong>Features:</strong> Auto-scan across Ethereum, Optimism, Base, Arbitrum, Hyperliquid, Tron, Polygon</p>
           </CardContent>
         </Card>
 
