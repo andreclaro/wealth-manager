@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/api";
 
-// GET /api/backup - Export all data
+// GET /api/backup - Export current user's data
 export async function GET() {
+  const { userId, error } = await requireAuth();
+  if (error) return error;
+
   try {
     const accounts = await prisma.portfolioAccount.findMany({
+      where: { userId },
       orderBy: { createdAt: "asc" },
     });
 
+    const accountIds = accounts.map(a => a.id);
+
     const assets = await prisma.asset.findMany({
+      where: { accountId: { in: accountIds } },
       orderBy: { createdAt: "asc" },
       include: {
         priceHistory: {
@@ -51,6 +59,9 @@ export async function GET() {
 
 // POST /api/backup/restore - Restore data from backup
 export async function POST(request: NextRequest) {
+  const { userId, error } = await requireAuth();
+  if (error) return error;
+
   try {
     const body = await request.json();
     const { accounts, assets } = body;
@@ -62,10 +73,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Clear existing data (in reverse order of dependencies)
-    await prisma.priceHistory.deleteMany({});
-    await prisma.asset.deleteMany({});
-    await prisma.portfolioAccount.deleteMany({});
+    // Clear existing user data (in reverse order of dependencies)
+    const userAccounts = await prisma.portfolioAccount.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const userAccountIds = userAccounts.map(a => a.id);
+
+    await prisma.priceHistory.deleteMany({
+      where: { asset: { accountId: { in: userAccountIds } } },
+    });
+    await prisma.asset.deleteMany({
+      where: { accountId: { in: userAccountIds } },
+    });
+    await prisma.portfolioAccount.deleteMany({
+      where: { userId },
+    });
 
     // Create accounts first and map old IDs to new IDs
     const accountIdMap = new Map<string, string>();
@@ -76,6 +99,7 @@ export async function POST(request: NextRequest) {
         data: {
           ...accountData,
           currency: accountData.currency || "EUR",
+          userId,
         },
       });
       accountIdMap.set(oldId, newAccount.id);
@@ -133,7 +157,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error restoring backup:", error);
     return NextResponse.json(
-      { error: "Failed to restore backup: " + (error as Error).message },
+      { error: "Failed to restore backup" },
       { status: 500 }
     );
   }
