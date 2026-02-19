@@ -35,5 +35,7 @@ export const {
       return session;
     },
   },
-  trustHost: true,
+  // Allow insecure connections in development only
+  // Remove this or set to false in production
+  trustHost: process.env.NODE_ENV === "development",
 });
