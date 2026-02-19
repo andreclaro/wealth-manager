@@ -57,6 +57,7 @@ const NATIVE_DECIMALS: Record<SupportedChain, number> = {
 const TRONSCAN_API = "https://apilist.tronscanapi.com";
 const HYPERLIQUID_EXPLORER_BASE = "https://app.hyperliquid.xyz/explorer";
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const MAX_HYPERLIQUID_VAULTS_TO_EXPAND = 5;
 const HYPERLIQUID_INFO_CLIENT = new InfoClient({
   transport: new HttpTransport({
     timeout: 10_000,
@@ -582,7 +583,13 @@ async function fetchHyperliquidMainnetData(address: string): Promise<ChainScanRe
 
   const spot = parseHyperliquidSpotState(spotData);
   const perps = parseHyperliquidPerpState(perpData);
-  const vaults = parseHyperliquidVaultEquities(vaultData);
+  const vaultBreakdown = await fetchHyperliquidVaultAssetBreakdown(vaultData);
+  const vaults = [
+    ...vaultBreakdown.tokens,
+    ...parseHyperliquidVaultEquities(vaultData, {
+      excludeVaultAddresses: vaultBreakdown.resolvedVaultAddresses,
+    }),
+  ];
   const staking = parseHyperliquidStakingSummary(stakingData);
   const perpWithdrawable = normalizeHyperliquidBalance(
     perpData?.withdrawable
@@ -648,6 +655,80 @@ async function fetchHyperliquidStakingSummary(address: string) {
   return HYPERLIQUID_INFO_CLIENT.delegatorSummary({
     user: address,
   });
+}
+
+async function fetchHyperliquidVaultAssetBreakdown(vaultEquities: any) {
+  const result: {
+    tokens: WalletToken[];
+    resolvedVaultAddresses: Set<string>;
+  } = {
+    tokens: [],
+    resolvedVaultAddresses: new Set<string>(),
+  };
+
+  if (!Array.isArray(vaultEquities)) {
+    return result;
+  }
+
+  const entries = vaultEquities
+    .map((entry: any) => ({
+      vaultAddress: String(entry?.vaultAddress || "").trim(),
+      equity: normalizeHyperliquidBalance(entry?.equity),
+    }))
+    .filter((entry) => entry.vaultAddress && entry.equity > 0)
+    .sort((a, b) => b.equity - a.equity)
+    .slice(0, MAX_HYPERLIQUID_VAULTS_TO_EXPAND);
+
+  if (entries.length === 0) {
+    return result;
+  }
+
+  const settled = await Promise.allSettled(
+    entries.map(async (entry) => {
+      const [spotResult, perpResult] = await Promise.allSettled([
+        fetchHyperliquidSpotState(entry.vaultAddress),
+        fetchHyperliquidPerpState(entry.vaultAddress),
+      ]);
+
+      const spotData = spotResult.status === "fulfilled" ? spotResult.value : null;
+      const perpData = perpResult.status === "fulfilled" ? perpResult.value : null;
+
+      if (!spotData && !perpData) {
+        return {
+          vaultAddress: entry.vaultAddress,
+          tokens: [] as WalletToken[],
+        };
+      }
+
+      const tokens = parseHyperliquidVaultStateTokens({
+        vaultAddress: entry.vaultAddress,
+        userVaultEquity: entry.equity,
+        spotData,
+        perpData,
+      });
+
+      return {
+        vaultAddress: entry.vaultAddress,
+        tokens,
+      };
+    })
+  );
+
+  for (const settledEntry of settled) {
+    if (settledEntry.status !== "fulfilled") {
+      continue;
+    }
+
+    const { vaultAddress, tokens } = settledEntry.value;
+    if (tokens.length === 0) {
+      continue;
+    }
+
+    result.tokens.push(...tokens);
+    result.resolvedVaultAddresses.add(vaultAddress);
+  }
+
+  return result;
 }
 
 function parseHyperliquidSpotState(data: any) {
@@ -847,7 +928,103 @@ function parseHyperliquidPerpState(data: any): WalletToken[] {
   return tokens;
 }
 
-function parseHyperliquidVaultEquities(data: any): WalletToken[] {
+function parseHyperliquidVaultStateTokens(params: {
+  vaultAddress: string;
+  userVaultEquity: number;
+  spotData: any;
+  perpData: any;
+}): WalletToken[] {
+  const { vaultAddress, userVaultEquity, spotData, perpData } = params;
+
+  const spot = parseHyperliquidSpotState(spotData);
+  const perps = parseHyperliquidPerpState(perpData);
+  const vaultUsdcBalance =
+    spot.usdcBalance > 0
+      ? spot.usdcBalance
+      : normalizeHyperliquidBalance(perpData?.withdrawable);
+
+  const vaultTokens: WalletToken[] = [...spot.tokens, ...perps];
+
+  if (vaultUsdcBalance > 0) {
+    vaultTokens.push({
+      contractAddress: "hyperliquid-spot:USDC",
+      symbol: "USDC",
+      name: "USDC (Hyperliquid Spot)",
+      decimals: 6,
+      balance: vaultUsdcBalance,
+      type: "HYPERLIQUID_SPOT",
+      chain: "hyperliquid-mainnet",
+      explorerUrl: getHyperliquidTokenExplorerUrl("USDC", "spot"),
+      priceUsd: 1,
+      valueUsd: vaultUsdcBalance,
+      priceSource: "hyperliquid",
+    });
+  }
+
+  if (vaultTokens.length === 0) {
+    return [];
+  }
+
+  const knownValue = vaultTokens.reduce((sum, token) => {
+    if (typeof token.valueUsd === "number" && Number.isFinite(token.valueUsd)) {
+      return sum + token.valueUsd;
+    }
+
+    if (
+      typeof token.priceUsd === "number" &&
+      Number.isFinite(token.priceUsd) &&
+      Number.isFinite(token.balance)
+    ) {
+      return sum + token.balance * token.priceUsd;
+    }
+
+    return sum;
+  }, 0);
+
+  const perpAccountValue = normalizeHyperliquidBalance(
+    perpData?.crossMarginSummary?.accountValue ??
+      perpData?.marginSummary?.accountValue ??
+      perpData?.accountValue
+  );
+  const referenceValue = knownValue > 0 ? knownValue : perpAccountValue;
+  const share =
+    referenceValue > 0
+      ? Math.min(1, userVaultEquity / referenceValue)
+      : 1;
+  const vaultTag = shortenAddress(vaultAddress);
+
+  return vaultTokens
+    .map((token) => {
+      const scaledBalance = token.balance * share;
+      if (!Number.isFinite(scaledBalance) || scaledBalance <= 0) {
+        return null;
+      }
+
+      const scaledValue =
+        typeof token.valueUsd === "number" && Number.isFinite(token.valueUsd)
+          ? token.valueUsd * share
+          : typeof token.priceUsd === "number" &&
+              Number.isFinite(token.priceUsd)
+            ? scaledBalance * token.priceUsd
+            : undefined;
+
+      return {
+        ...token,
+        contractAddress: `${token.contractAddress}:vault:${vaultAddress}`,
+        name: `${token.name} [Vault ${vaultTag}]`,
+        balance: scaledBalance,
+        valueUsd: scaledValue,
+      };
+    })
+    .filter((token: WalletToken | null): token is WalletToken => Boolean(token));
+}
+
+function parseHyperliquidVaultEquities(
+  data: any,
+  options?: { excludeVaultAddresses?: Set<string> }
+): WalletToken[] {
+  const exclude = options?.excludeVaultAddresses ?? new Set<string>();
+
   if (!Array.isArray(data)) {
     return [];
   }
@@ -856,6 +1033,10 @@ function parseHyperliquidVaultEquities(data: any): WalletToken[] {
     .map((entry: any): WalletToken | null => {
       const vaultAddress = String(entry?.vaultAddress || "").trim();
       if (!vaultAddress) {
+        return null;
+      }
+
+      if (exclude.has(vaultAddress)) {
         return null;
       }
 
@@ -884,6 +1065,14 @@ function parseHyperliquidVaultEquities(data: any): WalletToken[] {
       };
     })
     .filter((token: WalletToken | null): token is WalletToken => Boolean(token));
+}
+
+function shortenAddress(address: string) {
+  if (address.length <= 10) {
+    return address;
+  }
+
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 function parseHyperliquidStakingSummary(data: any): WalletToken[] {
