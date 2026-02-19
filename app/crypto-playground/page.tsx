@@ -422,7 +422,7 @@ export default function CryptoPlaygroundPage() {
                 Fetch EVM Wallet
               </CardTitle>
               <CardDescription>
-                Automatically scans Ethereum, Optimism, Base, Arbitrum, Hyperliquid (HyperEVM + Mainnet), Tron, and Polygon
+                Automatically scans Ethereum, Optimism, Base, Arbitrum, Polygon, Avalanche (C/Fuji/Beam/DFK/Dexalot/Shrapnel), Hyperliquid (HyperEVM + Mainnet), and Tron
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

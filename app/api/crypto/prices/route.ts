@@ -13,6 +13,10 @@ const TOKEN_ID_MAP: Record<string, string> = {
   HYPE: "hyperliquid",
   SOL: "solana",
   AVAX: "avalanche-2",
+  WAVAX: "wrapped-avax",
+  SAVAX: "benqi-liquid-staked-avax",
+  GGAVAX: "gogopool-ggavax",
+  STAVAX: "gogopool-ggavax",
   
   // Major tokens
   USDC: "usd-coin",
