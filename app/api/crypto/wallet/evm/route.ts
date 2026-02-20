@@ -965,6 +965,19 @@ function extractAvalanchePChainStakedAmount(result: AvalanchePChainStakeResult) 
   return Math.max(directStaked, fromOutputs);
 }
 
+function sortWalletTokensByValue(tokens: WalletToken[]) {
+  return [...tokens].sort((a, b) => {
+    const aValue = Number(a.valueUsd || 0);
+    const bValue = Number(b.valueUsd || 0);
+
+    if (aValue !== bValue) {
+      return bValue - aValue;
+    }
+
+    return b.balance - a.balance;
+  });
+}
+
 async function fetchAvalancheCChainNativeBalance(address: string) {
   try {
     const response = await fetch(AVALANCHE_C_CHAIN_RPC, {
@@ -1042,6 +1055,7 @@ async function fetchHyperliquidMainnetData(address: string): Promise<ChainScanRe
 
   const spot = parseHyperliquidSpotState(spotData);
   const perps = parseHyperliquidPerpState(perpData);
+  const perpCollateral = parseHyperliquidPerpCollateral(perpData);
   const vaults = await parseHyperliquidVaultEquities(vaultData);
   const staking = parseHyperliquidStakingSummary(stakingData);
   const perpWithdrawable = normalizeHyperliquidBalance(
@@ -1058,18 +1072,18 @@ async function fetchHyperliquidMainnetData(address: string): Promise<ChainScanRe
       : perpWithdrawable > 0
         ? perpWithdrawable
         : perpAccountValue;
-  const tokens = [...spot.tokens, ...perps, ...vaults, ...staking]
-    .sort((a, b) => {
-      const aValue = Number(a.valueUsd || 0);
-      const bValue = Number(b.valueUsd || 0);
 
-      if (aValue !== bValue) {
-        return bValue - aValue;
-      }
-
-      return b.balance - a.balance;
-    })
-    .slice(0, 100);
+  // Perp positions/collateral must remain visible even when many spot/vault assets exist.
+  const prioritizedPerps = sortWalletTokensByValue([
+    ...perps,
+    ...(perpCollateral ? [perpCollateral] : []),
+  ]);
+  const otherAssets = sortWalletTokensByValue([
+    ...spot.tokens,
+    ...vaults,
+    ...staking,
+  ]);
+  const tokens = [...prioritizedPerps, ...otherAssets].slice(0, 100);
 
   return {
     chain: "hyperliquid-mainnet",
@@ -1311,6 +1325,37 @@ function parseHyperliquidPerpState(data: any): WalletToken[] {
   }
 
   return tokens;
+}
+
+function parseHyperliquidPerpCollateral(data: any): WalletToken | null {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const collateralValue = normalizeHyperliquidBalance(
+    data?.withdrawable ??
+      data?.crossMarginSummary?.accountValue ??
+      data?.marginSummary?.accountValue ??
+      data?.accountValue
+  );
+
+  if (!Number.isFinite(collateralValue) || collateralValue <= 0) {
+    return null;
+  }
+
+  return {
+    contractAddress: "hyperliquid-perp:USDC-collateral",
+    symbol: "USDC",
+    name: "USDC Perp Collateral",
+    decimals: 6,
+    balance: collateralValue,
+    type: "HYPERLIQUID_PERP_COLLATERAL",
+    chain: "hyperliquid-mainnet",
+    explorerUrl: `${HYPERLIQUID_EXPLORER_BASE}/portfolio`,
+    priceUsd: 1,
+    valueUsd: collateralValue,
+    priceSource: "hyperliquid",
+  };
 }
 
 async function parseHyperliquidVaultEquities(data: any): Promise<WalletToken[]> {
