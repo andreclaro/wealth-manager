@@ -120,6 +120,7 @@ const SAMPLE_WALLETS = {
 export default function CryptoPlaygroundPage() {
   const [activeTab, setActiveTab] = useState("evm");
   const [evmAddress, setEvmAddress] = useState("");
+  const [avalanchePAddress, setAvalanchePAddress] = useState("");
   const [solanaAddress, setSolanaAddress] = useState("");
   const [tokenSearch, setTokenSearch] = useState("");
   const [chainFilter, setChainFilter] = useState("all");
@@ -178,7 +179,13 @@ export default function CryptoPlaygroundPage() {
     resetTokenFilters();
 
     try {
-      const response = await fetch(`/api/crypto/wallet/evm?address=${address}`);
+      const params = new URLSearchParams({ address });
+      const pAddress = avalanchePAddress.trim();
+      if (pAddress) {
+        params.set("pAddress", pAddress);
+      }
+
+      const response = await fetch(`/api/crypto/wallet/evm?${params.toString()}`);
       
       if (!response.ok) {
         const errorMessage = await parseErrorResponse(response);
@@ -422,7 +429,7 @@ export default function CryptoPlaygroundPage() {
                 Fetch EVM Wallet
               </CardTitle>
               <CardDescription>
-                Automatically scans Ethereum, Optimism, Base, Arbitrum, Polygon, Avalanche (C/Fuji/Beam/DFK/Dexalot/Shrapnel), Hyperliquid (HyperEVM + Mainnet), and Tron
+                Automatically scans Ethereum, Optimism, Base, Arbitrum, Polygon, Avalanche C-Chain and P-Chain (staking), Hyperliquid (HyperEVM + Mainnet), and Tron
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -450,6 +457,19 @@ export default function CryptoPlaygroundPage() {
                 </div>
               </div>
 
+              <div>
+                <Label htmlFor="avalanche-p-address">
+                  Avalanche P-Chain Address (optional)
+                </Label>
+                <Input
+                  id="avalanche-p-address"
+                  placeholder="P-avax1... or avax1..."
+                  value={avalanchePAddress}
+                  onChange={(e) => setAvalanchePAddress(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && fetchEVMWallet()}
+                />
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -463,6 +483,7 @@ export default function CryptoPlaygroundPage() {
                   size="sm"
                   onClick={() => {
                     setEvmAddress("");
+                    setAvalanchePAddress("");
                     setWalletData(null);
                     setError(null);
                     resetTokenFilters();
@@ -668,7 +689,11 @@ export default function CryptoPlaygroundPage() {
                       variant={result.status === "ok" ? "secondary" : "destructive"}
                       className="text-xs"
                     >
-                      {result.chain}: {result.status === "ok" ? `${result.tokenCount} tokens` : "error"}
+                      {result.chain}: {result.status === "ok"
+                        ? `${result.tokenCount} tokens${
+                            (result.nativeBalance || 0) > 0 ? " + native" : ""
+                          }`
+                        : "error"}
                     </Badge>
                   ))}
                 </div>
