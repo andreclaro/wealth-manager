@@ -1,5 +1,4 @@
 import { createHash } from "crypto";
-import { encode as bech32Encode, toWords as bech32ToWords } from "bech32";
 import {
   HttpTransport,
   InfoClient,
@@ -10,9 +9,13 @@ const ROUTESCAN_EVM_API_BASE = "https://api.routescan.io/v2/network";
 const AVALANCHE_C_CHAIN = "avalanche-c" as const;
 const AVALANCHE_P_CHAIN = "avalanche-p" as const;
 const ROUTESCAN_AVALANCHE_C_CHAIN_ID = 43114;
-const AVALANCHE_PLATFORM_RPC = "https://api.avax.network/ext/bc/P";
+const AVALANCHE_PLATFORM_RPC_ENDPOINTS = [
+  "https://api.avax.network/ext/bc/P",
+  "https://api.avax.network/ext/P",
+] as const;
+const AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS = [350, 900];
+const AVALANCHE_GLACIER_API_BASE = "https://glacier-api.avax.network/v1";
 const AVALANCHE_C_CHAIN_RPC = "https://api.avax.network/ext/bc/C/rpc";
-const AVALANCHE_MAINNET_HRP = "avax";
 const AVALANCHE_P_CHAIN_DECIMALS = 9;
 
 const BLOCKSCOUT_ENDPOINTS = {
@@ -101,6 +104,23 @@ interface WalletToken {
   priceSource?: string;
 }
 
+function mapNativeBalanceToWalletToken(nativeBalance: NativeBalanceEntry): WalletToken | null {
+  if (!Number.isFinite(nativeBalance.balance) || nativeBalance.balance <= 0) {
+    return null;
+  }
+
+  return {
+    contractAddress: `native:${nativeBalance.chain}`,
+    symbol: nativeBalance.symbol,
+    name: `${nativeBalance.symbol} (${nativeBalance.chain} native)`,
+    decimals: nativeBalance.decimals,
+    balance: nativeBalance.balance,
+    type: "NATIVE",
+    chain: nativeBalance.chain,
+    explorerUrl: nativeBalance.explorerUrl,
+  };
+}
+
 interface NativeBalanceEntry {
   chain: SupportedChain;
   symbol: string;
@@ -121,7 +141,7 @@ interface ChainScanResult {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const address = searchParams.get("address")?.trim();
-  const pAddressOverride = normalizeAvalanchePAddress(
+  const explicitPAddress = normalizeAvalanchePAddress(
     searchParams.get("pAddress") || searchParams.get("avalanchePAddress")
   );
   const chainParam = (searchParams.get("chain") || "auto").toLowerCase();
@@ -133,11 +153,30 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+  const isEvmAddress = /^0x[a-fA-F0-9]{40}$/.test(address);
+  const inlinePAddress = isEvmAddress
+    ? null
+    : normalizeAvalanchePAddress(address);
+
+  if (!isEvmAddress && !inlinePAddress) {
     return NextResponse.json(
       {
-        error: "Invalid EVM wallet address format",
-        details: "Expected a 0x-prefixed 40-hex-character address.",
+        error: "Invalid wallet address format",
+        details:
+          "Expected a 0x-prefixed 40-hex-character EVM address or a P-avax1... address.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const evmAddress = isEvmAddress ? address : null;
+  const pAddressOverride = explicitPAddress || inlinePAddress;
+
+  if (chainParam === AVALANCHE_P_CHAIN && !pAddressOverride) {
+    return NextResponse.json(
+      {
+        error: "Avalanche P-Chain address is required",
+        details: "Provide a P-avax1... address using `address` or `pAddress`.",
       },
       { status: 400 }
     );
@@ -145,7 +184,11 @@ export async function GET(request: NextRequest) {
 
   let chainsToScan: SupportedChain[] = [];
   try {
-    chainsToScan = resolveChains(chainParam);
+    chainsToScan = resolveChains(
+      chainParam,
+      Boolean(evmAddress),
+      Boolean(pAddressOverride)
+    );
   } catch {
     return NextResponse.json(
       {
@@ -159,7 +202,7 @@ export async function GET(request: NextRequest) {
   }
 
   const settled = await Promise.allSettled(
-    chainsToScan.map((chain) => scanChain(chain, address, pAddressOverride))
+    chainsToScan.map((chain) => scanChain(chain, evmAddress, pAddressOverride))
   );
 
   const chainResults: ChainScanResult[] = settled.map((result, index) => {
@@ -201,8 +244,13 @@ export async function GET(request: NextRequest) {
     .map((result) => result.nativeBalance)
     .filter((balance): balance is NativeBalanceEntry => Boolean(balance));
 
+  const nativeTokens = nativeBalances
+    .map((nativeBalance) => mapNativeBalanceToWalletToken(nativeBalance))
+    .filter((token): token is WalletToken => Boolean(token));
+
   const tokens = successfulResults
     .flatMap((result) => result.tokens)
+    .concat(nativeTokens)
     .sort((a, b) => {
       const aValue = Number(a.valueUsd || 0);
       const bValue = Number(b.valueUsd || 0);
@@ -220,7 +268,12 @@ export async function GET(request: NextRequest) {
     symbol: NATIVE_SYMBOLS[chainsToScan[0]],
     balance: 0,
     decimals: NATIVE_DECIMALS[chainsToScan[0]],
-    explorerUrl: getAddressExplorerUrl(chainsToScan[0], address),
+    explorerUrl: getAddressExplorerUrl(
+      chainsToScan[0],
+      chainsToScan[0] === AVALANCHE_P_CHAIN && pAddressOverride
+        ? pAddressOverride
+        : evmAddress || address
+    ),
   };
 
   return NextResponse.json({
@@ -241,7 +294,9 @@ export async function GET(request: NextRequest) {
       chain: result.chain,
       source: result.source,
       status: result.status,
-      tokenCount: result.tokens.length,
+      tokenCount:
+        result.tokens.length +
+        ((result.nativeBalance?.balance ?? 0) > 0 ? 1 : 0),
       nativeBalance: result.nativeBalance?.balance ?? 0,
       nativeSymbol: result.nativeBalance?.symbol,
       error: result.error,
@@ -250,17 +305,47 @@ export async function GET(request: NextRequest) {
   });
 }
 
-function resolveChains(chainParam: string): SupportedChain[] {
+function resolveChains(
+  chainParam: string,
+  hasEvmAddress: boolean,
+  hasPAddress: boolean
+): SupportedChain[] {
   if (!chainParam || chainParam === "all" || chainParam === "auto") {
-    return [...AUTO_SCAN_CHAINS];
+    if (!hasEvmAddress) {
+      return [AVALANCHE_P_CHAIN];
+    }
+
+    return hasPAddress
+      ? [...AUTO_SCAN_CHAINS]
+      : AUTO_SCAN_CHAINS.filter((chain) => chain !== AVALANCHE_P_CHAIN);
   }
 
   const aliasChains = CHAIN_ALIASES[chainParam];
-  if (aliasChains) {
-    return [...aliasChains];
+  if (aliasChains?.length) {
+    const filteredAliases = aliasChains.filter((chain) => {
+      if (chain === AVALANCHE_P_CHAIN) {
+        return hasPAddress;
+      }
+
+      return hasEvmAddress;
+    });
+
+    if (filteredAliases.length > 0) {
+      return filteredAliases;
+    }
+
+    throw new Error("Unsupported chain");
   }
 
   if (isSupportedChain(chainParam)) {
+    if (!hasEvmAddress && chainParam !== AVALANCHE_P_CHAIN) {
+      throw new Error("Unsupported chain");
+    }
+
+    if (chainParam === AVALANCHE_P_CHAIN && !hasPAddress) {
+      throw new Error("Unsupported chain");
+    }
+
     return [chainParam];
   }
 
@@ -295,11 +380,15 @@ function normalizeAvalanchePAddress(address: string | null | undefined) {
 
 async function scanChain(
   chain: SupportedChain,
-  evmAddress: string,
+  evmAddress: string | null,
   pAddressOverride?: string | null
 ) {
   if (chain === AVALANCHE_P_CHAIN) {
-    return fetchAvalanchePChainData(evmAddress, pAddressOverride);
+    return fetchAvalanchePChainData(pAddressOverride);
+  }
+
+  if (!evmAddress) {
+    throw new Error(`Chain ${chain} requires an EVM address`);
   }
 
   if (chain === "tron") {
@@ -772,6 +861,9 @@ interface AvalanchePlatformRpcResponse<T> {
 
 interface AvalanchePChainBalanceResult {
   balance?: string;
+  unlocked?: string;
+  lockedStakeable?: string;
+  lockedNotStakeable?: string;
 }
 
 interface AvalanchePChainStakeResult {
@@ -780,26 +872,58 @@ interface AvalanchePChainStakeResult {
   outputs?: any[];
 }
 
+interface AvalancheGlacierStakingAmount {
+  assetId?: string;
+  amount?: string;
+  symbol?: string;
+}
+
+interface AvalancheGlacierStakingTransaction {
+  startTimestamp?: number | string;
+  endTimestamp?: number | string;
+  amountStaked?: AvalancheGlacierStakingAmount[];
+}
+
+interface AvalancheGlacierStakingResponse {
+  transactions?: AvalancheGlacierStakingTransaction[];
+}
+
 async function fetchAvalanchePChainData(
-  evmAddress: string,
   pAddressOverride?: string | null
 ): Promise<ChainScanResult> {
-  const derivedPChainAddress = evmToAvalanchePChainAddress(evmAddress);
   const candidateAddresses = Array.from(
     new Set(
-      [pAddressOverride, derivedPChainAddress]
+      [pAddressOverride]
         .filter((value): value is string => Boolean(value))
         .flatMap((value) => [value, value.replace(/^P-/, "")])
     )
   );
+
+  if (candidateAddresses.length === 0) {
+    throw new Error("Avalanche P-Chain address is required");
+  }
+
   const primaryPChainAddress =
     candidateAddresses.find((address) => address.startsWith("P-")) ||
     `P-${candidateAddresses[0]}`;
 
-  const [balanceResult, stakeResult] = await Promise.allSettled([
-    fetchAvalanchePChainBalanceWithFallback(candidateAddresses),
-    fetchAvalanchePChainStakeWithFallback(candidateAddresses),
-  ]);
+  // Stake retrieval is the critical signal for P-chain assets, so fetch it first.
+  // Public endpoints aggressively rate-limit bursts; sequential calls improve success rate.
+  let stakeResult: PromiseSettledResult<AvalanchePChainStakeResult>;
+  try {
+    const stakeValue = await fetchAvalanchePChainStakeWithFallback(candidateAddresses);
+    stakeResult = { status: "fulfilled", value: stakeValue };
+  } catch (error) {
+    stakeResult = { status: "rejected", reason: error };
+  }
+
+  let balanceResult: PromiseSettledResult<AvalanchePChainBalanceResult>;
+  try {
+    const balanceValue = await fetchAvalanchePChainBalanceWithFallback(candidateAddresses);
+    balanceResult = { status: "fulfilled", value: balanceValue };
+  } catch (error) {
+    balanceResult = { status: "rejected", reason: error };
+  }
 
   if (balanceResult.status === "rejected" && stakeResult.status === "rejected") {
     const balanceError = normalizeErrorMessage(balanceResult.reason);
@@ -811,8 +935,21 @@ async function fetchAvalanchePChainData(
 
   const nativeBalance =
     balanceResult.status === "fulfilled"
+      ? resolveAvalanchePChainUnlockedBalance(balanceResult.value)
+      : 0;
+
+  const lockedStakeable =
+    balanceResult.status === "fulfilled"
       ? normalizeAtomicBalance(
-          balanceResult.value?.balance,
+          balanceResult.value?.lockedStakeable,
+          AVALANCHE_P_CHAIN_DECIMALS
+        )
+      : 0;
+
+  const lockedNotStakeable =
+    balanceResult.status === "fulfilled"
+      ? normalizeAtomicBalance(
+          balanceResult.value?.lockedNotStakeable,
           AVALANCHE_P_CHAIN_DECIMALS
         )
       : 0;
@@ -834,6 +971,32 @@ async function fetchAvalanchePChainData(
       chain: AVALANCHE_P_CHAIN,
       explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, primaryPChainAddress),
     });
+  } else {
+    if (lockedStakeable > 0) {
+      tokens.push({
+        contractAddress: `avalanche-p-locked:stakeable:${primaryPChainAddress}`,
+        symbol: "AVAX",
+        name: "AVAX Locked Stakeable (Avalanche P-Chain)",
+        decimals: AVALANCHE_P_CHAIN_DECIMALS,
+        balance: lockedStakeable,
+        type: "AVALANCHE_P_LOCKED_STAKEABLE",
+        chain: AVALANCHE_P_CHAIN,
+        explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, primaryPChainAddress),
+      });
+    }
+
+    if (lockedNotStakeable > 0) {
+      tokens.push({
+        contractAddress: `avalanche-p-locked:nonstakeable:${primaryPChainAddress}`,
+        symbol: "AVAX",
+        name: "AVAX Locked (Avalanche P-Chain)",
+        decimals: AVALANCHE_P_CHAIN_DECIMALS,
+        balance: lockedNotStakeable,
+        type: "AVALANCHE_P_LOCKED",
+        chain: AVALANCHE_P_CHAIN,
+        explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, primaryPChainAddress),
+      });
+    }
   }
 
   return {
@@ -886,6 +1049,11 @@ async function fetchAvalanchePChainStakeWithFallback(addresses: string[]) {
     }
   }
 
+  const glacierFallback = await fetchAvalanchePChainStakeViaGlacier(addresses);
+  if (glacierFallback) {
+    return glacierFallback;
+  }
+
   if (lastError) {
     throw lastError;
   }
@@ -893,44 +1061,216 @@ async function fetchAvalanchePChainStakeWithFallback(addresses: string[]) {
   throw new Error("Unable to resolve Avalanche P-Chain stake");
 }
 
+async function fetchAvalanchePChainStakeViaGlacier(
+  addresses: string[]
+): Promise<AvalanchePChainStakeResult | null> {
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const candidateAddresses = Array.from(
+    new Set(
+      addresses
+        .map((address) => String(address || "").trim())
+        .filter(Boolean)
+        .map((address) => (address.startsWith("P-") ? address : `P-${address}`))
+    )
+  );
+
+  for (const address of candidateAddresses) {
+    const url = new URL(
+      `${AVALANCHE_GLACIER_API_BASE}/networks/mainnet/blockchains/p-chain/transactions:listStaking`
+    );
+    url.searchParams.set("addresses", address);
+    url.searchParams.set("pageSize", "100");
+
+    try {
+      const response = await fetch(url.toString(), {
+        next: { revalidate: 30 },
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const payload =
+        (await response.json()) as AvalancheGlacierStakingResponse;
+      const transactions = Array.isArray(payload?.transactions)
+        ? payload.transactions
+        : [];
+
+      let totalAtomic = 0n;
+      for (const transaction of transactions) {
+        const startTimestamp = normalizeAvalancheUnixTimestamp(
+          transaction?.startTimestamp
+        );
+        const endTimestamp = normalizeAvalancheUnixTimestamp(
+          transaction?.endTimestamp
+        );
+
+        if (startTimestamp !== null && nowUnix < startTimestamp) {
+          continue;
+        }
+
+        if (endTimestamp !== null && nowUnix > endTimestamp) {
+          continue;
+        }
+
+        totalAtomic += extractAvalancheGlacierStakedAtomicAmount(transaction);
+      }
+
+      return {
+        staked: totalAtomic.toString(),
+      };
+    } catch {
+      // Try next candidate address.
+    }
+  }
+
+  return null;
+}
+
+function normalizeAvalancheUnixTimestamp(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.trunc(parsed);
+}
+
+function extractAvalancheGlacierStakedAtomicAmount(
+  transaction: AvalancheGlacierStakingTransaction
+) {
+  const amounts = Array.isArray(transaction?.amountStaked)
+    ? transaction.amountStaked
+    : [];
+
+  let total = 0n;
+  for (const amountEntry of amounts) {
+    const symbol = String(amountEntry?.symbol || "").toUpperCase();
+    if (symbol && symbol !== "AVAX") {
+      continue;
+    }
+
+    const rawAmount = String(amountEntry?.amount ?? "0");
+    try {
+      const atomic = BigInt(rawAmount);
+      if (atomic > 0n) {
+        total += atomic;
+      }
+    } catch {
+      // Ignore malformed amount entries.
+    }
+  }
+
+  return total;
+}
+
 async function callAvalanchePlatformRpc<T>(
   method: string,
   params: Record<string, unknown>
 ): Promise<T> {
-  const response = await fetch(AVALANCHE_PLATFORM_RPC, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method,
-      params,
-    }),
-    next: { revalidate: 30 },
-  });
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    throw new Error(`Avalanche RPC HTTP ${response.status}`);
+  for (const endpoint of AVALANCHE_PLATFORM_RPC_ENDPOINTS) {
+    for (let attempt = 0; attempt <= AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method,
+            params,
+          }),
+          next: { revalidate: 30 },
+        });
+
+        const rawBody = await response.text();
+        const statusErrorMessage = `Avalanche RPC HTTP ${response.status}`;
+
+        if (!response.ok) {
+          if (
+            response.status === 429 &&
+            attempt < AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS.length
+          ) {
+            await wait(AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS[attempt]);
+            continue;
+          }
+
+          throw new Error(statusErrorMessage);
+        }
+
+        let payload: AvalanchePlatformRpcResponse<T>;
+        try {
+          payload = JSON.parse(rawBody);
+        } catch {
+          if (
+            isAvalancheRpcRateLimitMessage(rawBody) &&
+            attempt < AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS.length
+          ) {
+            await wait(AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS[attempt]);
+            continue;
+          }
+
+          throw new Error("Invalid Avalanche RPC response");
+        }
+
+        if (payload?.error) {
+          const errorMessage =
+            payload.error.message || `Avalanche RPC ${method} failed`;
+          if (
+            isAvalancheRpcRateLimitMessage(errorMessage) &&
+            attempt < AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS.length
+          ) {
+            await wait(AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS[attempt]);
+            continue;
+          }
+
+          throw new Error(errorMessage);
+        }
+
+        if (!payload?.result) {
+          throw new Error(`Avalanche RPC ${method} returned no result`);
+        }
+
+        return payload.result;
+      } catch (error) {
+        const normalizedMessage = normalizeErrorMessage(error);
+        lastError = error instanceof Error ? error : new Error(normalizedMessage);
+
+        if (
+          isAvalancheRpcRateLimitMessage(normalizedMessage) &&
+          attempt < AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS.length
+        ) {
+          await wait(AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+
+        break;
+      }
+    }
   }
 
-  let payload: AvalanchePlatformRpcResponse<T>;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new Error("Invalid Avalanche RPC response");
+  if (lastError) {
+    throw lastError;
   }
 
-  if (payload?.error) {
-    throw new Error(payload.error.message || `Avalanche RPC ${method} failed`);
-  }
+  throw new Error(`Avalanche RPC ${method} failed`);
+}
 
-  if (!payload?.result) {
-    throw new Error(`Avalanche RPC ${method} returned no result`);
-  }
+function isAvalancheRpcRateLimitMessage(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("429") ||
+    normalized.includes("1015") ||
+    normalized.includes("rate limit")
+  );
+}
 
-  return payload.result;
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function extractAvalanchePChainStakedAmount(result: AvalanchePChainStakeResult) {
@@ -963,6 +1303,35 @@ function extractAvalanchePChainStakedAmount(result: AvalanchePChainStakeResult) 
   }, 0);
 
   return Math.max(directStaked, fromOutputs);
+}
+
+function resolveAvalanchePChainUnlockedBalance(result: AvalanchePChainBalanceResult) {
+  const unlocked = normalizeAtomicBalance(
+    result?.unlocked,
+    AVALANCHE_P_CHAIN_DECIMALS
+  );
+  const lockedStakeable = normalizeAtomicBalance(
+    result?.lockedStakeable,
+    AVALANCHE_P_CHAIN_DECIMALS
+  );
+  const lockedNotStakeable = normalizeAtomicBalance(
+    result?.lockedNotStakeable,
+    AVALANCHE_P_CHAIN_DECIMALS
+  );
+
+  const hasBalanceBreakdown =
+    result?.unlocked !== undefined ||
+    result?.lockedStakeable !== undefined ||
+    result?.lockedNotStakeable !== undefined;
+
+  if (hasBalanceBreakdown) {
+    return Math.max(
+      0,
+      unlocked
+    );
+  }
+
+  return normalizeAtomicBalance(result?.balance, AVALANCHE_P_CHAIN_DECIMALS);
 }
 
 function sortWalletTokensByValue(tokens: WalletToken[]) {
@@ -1613,16 +1982,6 @@ function evmToTronAddress(evmAddress: string) {
   const checksum = secondHash.subarray(0, 4);
 
   return base58Encode(Buffer.concat([tronHexPayload, checksum]));
-}
-
-function evmToAvalanchePChainAddress(evmAddress: string) {
-  const normalized = evmAddress.toLowerCase().replace(/^0x/, "");
-  const addressBytes = Buffer.from(normalized, "hex");
-  const bech32Address = bech32Encode(
-    AVALANCHE_MAINNET_HRP,
-    bech32ToWords(addressBytes)
-  );
-  return `P-${bech32Address}`;
 }
 
 function base58Encode(buffer: Buffer) {

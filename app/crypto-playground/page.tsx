@@ -429,7 +429,7 @@ export default function CryptoPlaygroundPage() {
                 Fetch EVM Wallet
               </CardTitle>
               <CardDescription>
-                Automatically scans Ethereum, Optimism, Base, Arbitrum, Polygon, Avalanche C-Chain and P-Chain (staking), Hyperliquid (HyperEVM + Mainnet), and Tron
+                Automatically scans Ethereum, Optimism, Base, Arbitrum, Polygon, Avalanche C-Chain and P-Chain (staking), Hyperliquid (HyperEVM + Mainnet), and Tron. For Avalanche P-Chain staking, provide a P-avax address.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -438,7 +438,7 @@ export default function CryptoPlaygroundPage() {
                 <div className="flex gap-2">
                   <Input
                     id="evm-address"
-                    placeholder="0x..."
+                    placeholder="0x... or P-avax1..."
                     value={evmAddress}
                     onChange={(e) => setEvmAddress(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && fetchEVMWallet()}
@@ -459,7 +459,7 @@ export default function CryptoPlaygroundPage() {
 
               <div>
                 <Label htmlFor="avalanche-p-address">
-                  Avalanche P-Chain Address (optional)
+                  Avalanche P-Chain Address (optional, required when wallet is 0x...)
                 </Label>
                 <Input
                   id="avalanche-p-address"
@@ -883,10 +883,10 @@ export default function CryptoPlaygroundPage() {
             <CardTitle className="text-sm">Solana API</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-2">
-            <p><strong>Source:</strong> Solana Public RPC</p>
+            <p><strong>Sources:</strong> Solana Public RPC + Jupiter + Kamino APIs</p>
             <p><strong>Cost:</strong> 100% Free, no API key</p>
             <p><strong>Rate Limit:</strong> 100 requests/10 seconds per IP</p>
-            <p><strong>Features:</strong> SOL balance, all SPL tokens (by mint address)</p>
+            <p><strong>Features:</strong> SOL balance, SPL tokens, and protocol positions (Jupiter/Kamino best-effort)</p>
           </CardContent>
         </Card>
       </div>

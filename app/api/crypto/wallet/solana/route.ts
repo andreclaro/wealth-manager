@@ -7,6 +7,7 @@ const SOLANA_RPC =
 const SOLSCAN_BASE_URL = "https://solscan.io";
 const KAMINO_API_BASE = "https://api.kamino.finance";
 const JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
+const JUPITER_ULTRA_API_BASE = "https://ultra-api.jup.ag";
 const SOLANA_ADDRESS_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const DEFAULT_HTTP_HEADERS: HeadersInit = {
   accept: "application/json",
@@ -108,6 +109,7 @@ const KNOWN_TOKENS: Record<
 
 interface TokenInfo {
   mint?: string;
+  tokenAccount?: string;
   symbol: string;
   name: string;
   balance: number;
@@ -156,6 +158,7 @@ export async function GET(request: NextRequest) {
       solBalanceLamports,
       tokenAccountsResponses,
       stakePositions,
+      jupiterHoldingTokens,
       jupiterPortfolioPositions,
       jupiterStakePositions,
       kaminoLendPositions,
@@ -172,6 +175,7 @@ export async function GET(request: NextRequest) {
           }),
         ]),
         fetchStakePositions(connection, address),
+        fetchJupiterHoldingsTokens(address),
         fetchJupiterPortfolioPositions(address),
         fetchJupiterStakePositions(address),
         fetchKaminoPositions(address),
@@ -197,6 +201,7 @@ export async function GET(request: NextRequest) {
 
         return {
           mint: parsedInfo.mint,
+          tokenAccount: account.pubkey.toBase58(),
           symbol: parsedInfo.mint.slice(0, 4),
           name: "Unknown Token",
           balance,
@@ -212,11 +217,15 @@ export async function GET(request: NextRequest) {
       })
       .filter((token): token is TokenInfo => token !== null)
       .sort((a, b) => b.balance - a.balance);
+    const enrichedBaseTokens = dedupeTokenAccountEntries([
+      ...baseTokens,
+      ...jupiterHoldingTokens,
+    ]);
 
     const metadataCache = new Map<string, TokenMetadata>();
     const tokensWithMetadata: TokenInfo[] = [];
 
-    for (const token of baseTokens) {
+    for (const token of enrichedBaseTokens) {
       const mintAddress = token.mint;
       if (!mintAddress) {
         continue;
@@ -247,11 +256,15 @@ export async function GET(request: NextRequest) {
           (position) => position.type !== "JUP_STAKE_FALLBACK"
         )
       : jupiterPortfolioPositions;
-    const protocolPositions = dedupeProtocolPositions([
+    const rawProtocolPositions = dedupeProtocolPositions([
       ...jupiterPositionsWithoutStakeFallback,
       ...jupiterStakePositions,
       ...allKaminoPositions,
     ]);
+    const protocolPositions = filterRedundantProtocolPositions(
+      tokensWithMetadata,
+      rawProtocolPositions
+    );
     const mergedTokens = [
       ...tokensWithMetadata,
       ...stakePositions.tokens,
@@ -274,6 +287,7 @@ export async function GET(request: NextRequest) {
       stakedSolBalance: stakePositions.totalStakedSol,
       kaminoPositionCount: allKaminoPositions.length,
       jupiterPositionCount: jupiterPortfolioPositions.length,
+      jupiterHoldingTokenCount: jupiterHoldingTokens.length,
       protocolPositionCount: protocolPositions.length,
       fetchedAt: new Date().toISOString(),
     };
@@ -486,6 +500,122 @@ function getJupiterApiHeaders(): HeadersInit {
   };
 }
 
+async function fetchJupiterHoldingsTokens(address: string): Promise<TokenInfo[]> {
+  const headers = getJupiterApiHeaders();
+  const endpoint = `${JUPITER_ULTRA_API_BASE}/holdings/${address}`;
+  const payload = await fetchJsonIfOk(endpoint, headers);
+  if (!payload) {
+    return [];
+  }
+
+  const parsed = mapJupiterHoldingPayload(payload);
+  return parsed.length > 0 ? dedupeTokenAccountEntries(parsed) : [];
+}
+
+function mapJupiterHoldingPayload(payload: any): TokenInfo[] {
+  const tokenBuckets =
+    payload &&
+    typeof payload === "object" &&
+    payload?.tokens &&
+    typeof payload.tokens === "object" &&
+    !Array.isArray(payload.tokens)
+      ? payload?.tokens
+      : payload?.data &&
+        typeof payload.data === "object" &&
+        payload?.data?.tokens &&
+        typeof payload.data.tokens === "object" &&
+        !Array.isArray(payload.data.tokens)
+        ? payload.data.tokens
+        : null;
+
+  if (!tokenBuckets || typeof tokenBuckets !== "object" || Array.isArray(tokenBuckets)) {
+    return [];
+  }
+
+  const entries: TokenInfo[] = [];
+
+  for (const [mint, bucket] of Object.entries(tokenBuckets)) {
+    if (!isSolanaAddressLike(mint)) {
+      continue;
+    }
+
+    const balances = extractJupiterHoldingEntries(bucket);
+    for (const item of balances) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+
+      const decimals = normalizeInt(item?.decimals ?? item?.token?.decimals, 0);
+      const rawAmount = firstNonEmptyString([
+        item?.amount,
+        item?.rawAmount,
+        item?.amountRaw,
+        item?.tokenAmount?.amount,
+        item?.info?.tokenAmount?.amount,
+      ]);
+      const parsedAmount = firstFiniteNumber([
+        item?.uiAmount,
+        item?.uiAmountString,
+        item?.balance,
+        item?.tokenAmount?.uiAmountString,
+        item?.tokenAmount?.uiAmount,
+        item?.info?.tokenAmount?.uiAmountString,
+        item?.info?.tokenAmount?.uiAmount,
+      ]);
+      const balance =
+        parsedAmount > 0 ? parsedAmount : parseRawTokenAmount(rawAmount, decimals);
+
+      if (!Number.isFinite(balance) || balance <= 0) {
+        continue;
+      }
+
+      const valueUsd = firstFiniteNumber([
+        item?.valueUsd,
+        item?.usdValue,
+        item?.value,
+        item?.amountUsd,
+      ]);
+      const priceUsd = firstFiniteNumber([
+        item?.priceUsd,
+        item?.usdPrice,
+        valueUsd > 0 ? valueUsd / balance : 0,
+      ]);
+      const tokenAccount = String(
+        item?.account || item?.tokenAccount || item?.address || item?.pubkey || ""
+      ).trim();
+      const symbol = String(
+        item?.symbol || item?.token?.symbol || item?.tokenSymbol || mint.slice(0, 4)
+      ).trim();
+      const name = String(
+        item?.name || item?.token?.name || item?.tokenName || "Unknown Token"
+      )
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 60);
+
+      entries.push({
+        mint,
+        tokenAccount: isSolanaAddressLike(tokenAccount) ? tokenAccount : undefined,
+        symbol: symbol || mint.slice(0, 4),
+        name: name || "Unknown Token",
+        balance,
+        decimals,
+        rawAmount: rawAmount || String(balance),
+        chain: "solana",
+        type: "SPL",
+        tokenProgram: String(item?.programId || item?.tokenProgram || "").trim() || undefined,
+        explorerUrl: `${SOLSCAN_BASE_URL}/token/${mint}`,
+        source: "jupiter-ultra-holdings",
+        positionType: "token",
+        priceUsd: priceUsd > 0 ? priceUsd : undefined,
+        valueUsd: valueUsd > 0 ? valueUsd : undefined,
+      });
+    }
+  }
+
+  return entries.sort((a, b) => b.balance - a.balance);
+}
+
 async function fetchJupiterPortfolioPositions(address: string): Promise<TokenInfo[]> {
   const endpoints = [
     `${JUPITER_PORTFOLIO_API_BASE}/positions/${address}`,
@@ -499,7 +629,15 @@ async function fetchJupiterPortfolioPositions(address: string): Promise<TokenInf
       continue;
     }
 
-    const elements = Array.isArray(payload?.elements) ? payload.elements : [];
+    const elements = Array.isArray(payload?.elements)
+      ? payload.elements
+      : Array.isArray(payload?.positions)
+        ? payload.positions
+        : Array.isArray(payload?.data?.elements)
+          ? payload.data.elements
+          : Array.isArray(payload?.data?.positions)
+            ? payload.data.positions
+            : [];
     const mapped = elements
       .map((element: any) => mapJupiterPortfolioElement(element))
       .filter((entry: TokenInfo | null): entry is TokenInfo => entry !== null);
@@ -648,7 +786,7 @@ async function fetchKaminoPositions(address: string): Promise<TokenInfo[]> {
     return [];
   }
 
-  const scannedMarketIds = marketIds.slice(0, 120);
+  const scannedMarketIds = marketIds;
   const marketBatchSize = 8;
   const aggregatedPositions: TokenInfo[] = [];
 
@@ -657,8 +795,8 @@ async function fetchKaminoPositions(address: string): Promise<TokenInfo[]> {
     const batchResults = await Promise.all(
       marketBatch.map(async (marketId) => {
         const marketEndpoints = [
-          `${KAMINO_API_BASE}/kamino-market/${marketId}/users/${address}/obligations`,
-          `${KAMINO_API_BASE}/v2/kamino-market/${marketId}/users/${address}/obligations`,
+          `${KAMINO_API_BASE}/kamino-market/${marketId}/users/${address}/obligations?env=mainnet-beta`,
+          `${KAMINO_API_BASE}/v2/kamino-market/${marketId}/users/${address}/obligations?env=mainnet-beta`,
         ];
 
         for (const endpoint of marketEndpoints) {
@@ -680,10 +818,6 @@ async function fetchKaminoPositions(address: string): Promise<TokenInfo[]> {
     );
 
     aggregatedPositions.push(...batchResults.flat());
-    // Avoid very long responses when we already found positions.
-    if (aggregatedPositions.length > 0 && i >= 48) {
-      break;
-    }
   }
 
   return dedupeProtocolPositions(aggregatedPositions);
@@ -747,7 +881,7 @@ async function fetchJsonIfOk(
   try {
     const response = await fetch(endpoint, {
       headers,
-      next: { revalidate: 120 },
+      cache: "no-store",
     });
 
     if (!response.ok) {
@@ -846,16 +980,23 @@ function extractKaminoVaultEntries(payload: any): any[] {
       entry?.balance,
       entry?.amount,
       entry?.positionSize,
+      entry?.stakedShares,
+      entry?.unstakedShares,
+      entry?.totalShares,
+      entry?.underlyingBalance,
+      entry?.underlyingAmount,
     ]);
     const hasVaultId = isSolanaAddressLike(
-      entry?.vaultAddress ?? entry?.vault ?? entry?.vaultPubkey
+      entry?.vaultAddress ?? entry?.vault ?? entry?.vaultPubkey ?? entry?.address
     );
     const hasVaultHints = Boolean(
       entry?.vaultAddress ||
-        entry?.vault ||
-        entry?.vaultPubkey ||
-        entry?.vaultSymbol ||
-        entry?.symbol
+      entry?.vault ||
+      entry?.vaultPubkey ||
+      entry?.vaultSymbol ||
+      entry?.symbol ||
+      entry?.address ||
+      entry?.vaultName
     );
 
     if (!hasVaultHints || (usdValue <= 0 && shareBalance <= 0 && !hasVaultId)) {
@@ -880,20 +1021,23 @@ function extractKaminoVaultEntries(payload: any): any[] {
 }
 
 function mapKaminoObligation(obligation: any, marketFallback?: string): TokenInfo | null {
-  const depositUsd = firstFiniteNumber([
+  const depositUsd = normalizeKaminoUsd(firstFiniteNumber([
     obligation?.refreshedStats?.userTotalDeposit,
     obligation?.userTotalDeposit,
     obligation?.depositUsd,
     obligation?.totalDepositValueUsd,
     obligation?.totalDepositsUsd,
-  ]);
-  const borrowUsd = firstFiniteNumber([
+    obligation?.state?.depositedValueSf,
+  ]));
+  const borrowUsd = normalizeKaminoUsd(firstFiniteNumber([
     obligation?.refreshedStats?.userTotalBorrow,
     obligation?.userTotalBorrow,
     obligation?.borrowUsd,
     obligation?.totalBorrowValueUsd,
     obligation?.totalBorrowsUsd,
-  ]);
+    obligation?.state?.borrowFactorAdjustedDebtValueSf,
+    obligation?.state?.borrowedAssetsMarketValueSf,
+  ]));
   const netValueRaw = firstFiniteSignedNumber([
     obligation?.refreshedStats?.netAccountValue,
     obligation?.netAccountValue,
@@ -912,28 +1056,44 @@ function mapKaminoObligation(obligation: any, marketFallback?: string): TokenInf
       obligation?.pubkey ||
       ""
   );
+  const tag = String(
+    obligation?.humanTag ||
+      obligation?.tag ||
+      obligation?.obligationTag ||
+      ""
+  ).trim();
+  const tagLower = tag.toLowerCase();
+  const isLeverageLike =
+    tagLower.includes("multiply") || tagLower.includes("leverage");
   const marketAddress = String(
     obligation?.marketAddress ||
       obligation?.market ||
       obligation?.marketPubkey ||
+      obligation?.state?.lendingMarket ||
       marketFallback ||
       ""
   );
   const marketName = String(
-    obligation?.marketName || obligation?.marketLabel || obligation?.marketSymbol || ""
+    obligation?.marketName ||
+      obligation?.marketLabel ||
+      obligation?.marketSymbol ||
+      obligation?.state?.elevationGroup ||
+      ""
   ).trim();
   const effectiveValueUsd = netValueUsd > 0 ? netValueUsd : depositUsd;
 
   return {
     symbol: "KAMINO",
     name: marketName
-      ? `Kamino Lend (${marketName.slice(0, 24)})`
-      : "Kamino Lend Position",
+      ? `${isLeverageLike ? "Kamino Leverage" : "Kamino Lend"} (${marketName.slice(0, 24)})`
+      : isLeverageLike
+        ? "Kamino Leverage Position"
+        : "Kamino Lend Position",
     balance: effectiveValueUsd,
     decimals: 2,
     rawAmount: String(effectiveValueUsd),
     chain: "solana",
-    type: "KAMINO_LEND",
+    type: isLeverageLike ? "KAMINO_LEVERAGE" : "KAMINO_LEND",
     source: "kamino-api",
     positionType: "protocol",
     explorerUrl: obligationAddress
@@ -943,13 +1103,24 @@ function mapKaminoObligation(obligation: any, marketFallback?: string): TokenInf
     valueUsd: effectiveValueUsd,
     borrowUsd,
     netValueUsd,
+    leverage: firstFiniteNumber([
+      obligation?.refreshedStats?.leverage,
+      obligation?.leverage,
+      obligation?.state?.leverage,
+    ]),
+    healthFactor: firstFiniteNumber([
+      obligation?.refreshedStats?.liquidationLtv,
+      obligation?.liquidationLtv,
+      obligation?.state?.liquidationLtv,
+    ]),
+    tag: tag || undefined,
     market: marketAddress,
     obligationAddress,
   };
 }
 
 function mapKaminoVaultPosition(entry: any): TokenInfo | null {
-  const usdValue = firstFiniteNumber([
+  const usdValue = normalizeKaminoUsd(firstFiniteNumber([
     entry?.usdValue,
     entry?.valueUsd,
     entry?.positionUsdValue,
@@ -957,7 +1128,10 @@ function mapKaminoVaultPosition(entry: any): TokenInfo | null {
     entry?.currentValueUsd,
     entry?.balanceUsd,
     entry?.stats?.usdValue,
-  ]);
+    entry?.totalAssetsUsd,
+    entry?.depositedValueUsd,
+    entry?.equityUsd,
+  ]));
 
   const shareBalance = firstFiniteNumber([
     entry?.shares,
@@ -965,28 +1139,71 @@ function mapKaminoVaultPosition(entry: any): TokenInfo | null {
     entry?.balance,
     entry?.amount,
     entry?.positionSize,
+    entry?.stakedShares,
+    entry?.unstakedShares,
+    entry?.totalShares,
+    entry?.underlyingBalance,
+    entry?.underlyingAmount,
   ]);
+  const sharePriceUsd = normalizeKaminoUsd(firstFiniteNumber([
+    entry?.sharePriceUsd,
+    entry?.priceUsd,
+    entry?.vaultSharePriceUsd,
+    entry?.vaultSharePrice,
+  ]));
 
-  const effectiveBalance = shareBalance > 0 ? shareBalance : usdValue;
+  const computedValueUsd =
+    usdValue > 0
+      ? usdValue
+      : shareBalance > 0 && sharePriceUsd > 0
+        ? shareBalance * sharePriceUsd
+        : 0;
+  const effectiveBalance = shareBalance > 0 ? shareBalance : computedValueUsd;
   if (!Number.isFinite(effectiveBalance) || effectiveBalance <= 0) {
     return null;
   }
 
   const symbol = String(
-    entry?.symbol || entry?.vaultSymbol || entry?.tokenSymbol || "KVAULT"
+    entry?.symbol ||
+      entry?.vaultSymbol ||
+      entry?.tokenSymbol ||
+      entry?.token?.symbol ||
+      entry?.assetSymbol ||
+      "KVAULT"
   ).slice(0, 20);
   const name = String(
-    entry?.vaultName || entry?.name || "Kamino Vault Position"
+    entry?.vaultName ||
+      entry?.name ||
+      entry?.vault?.name ||
+      "Kamino Vault Position"
   ).slice(0, 60);
 
   const vaultAddress = String(
-    entry?.vaultAddress || entry?.vault || entry?.vaultPubkey || ""
+    entry?.vaultAddress || entry?.vault || entry?.vaultPubkey || entry?.address || ""
   );
+  const mint = String(
+    entry?.mint ||
+      entry?.vaultMint ||
+      entry?.shareMint ||
+      entry?.tokenMint ||
+      entry?.receiptMint ||
+      entry?.sharesMint ||
+      ""
+  ).trim();
+  const tokenAccount = String(
+    entry?.account || entry?.tokenAccount || entry?.userTokenAccount || ""
+  ).trim();
   const derivedPriceUsd =
-    usdValue > 0 && shareBalance > 0 ? usdValue / shareBalance : 1;
+    sharePriceUsd > 0
+      ? sharePriceUsd
+      : computedValueUsd > 0 && shareBalance > 0
+        ? computedValueUsd / shareBalance
+        : undefined;
   const decimals = Number(entry?.decimals);
 
   return {
+    mint: isSolanaAddressLike(mint) ? mint : undefined,
+    tokenAccount: isSolanaAddressLike(tokenAccount) ? tokenAccount : undefined,
     symbol,
     name,
     balance: effectiveBalance,
@@ -1000,7 +1217,7 @@ function mapKaminoVaultPosition(entry: any): TokenInfo | null {
       ? `${SOLSCAN_BASE_URL}/account/${vaultAddress}`
       : "https://app.kamino.finance/earn",
     priceUsd: derivedPriceUsd,
-    valueUsd: usdValue > 0 ? usdValue : undefined,
+    valueUsd: computedValueUsd > 0 ? computedValueUsd : undefined,
     vaultAddress,
   };
 }
@@ -1047,6 +1264,7 @@ function extractKaminoMarketAddresses(payload: any): string[] {
       item?.marketAddress,
       item?.market,
       item?.marketId,
+      item?.lendingMarket,
     ];
 
     for (const candidate of marketCandidates) {
@@ -1080,30 +1298,231 @@ function isSolanaAddressLike(value: unknown): boolean {
   return typeof value === "string" && SOLANA_ADDRESS_REGEX.test(value);
 }
 
+function extractJupiterHoldingEntries(bucket: unknown): any[] {
+  if (!bucket || typeof bucket !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(bucket)) {
+    return bucket.filter((entry) => isJupiterHoldingEntry(entry));
+  }
+
+  const maybeEntry = bucket as any;
+  if (isJupiterHoldingEntry(maybeEntry)) {
+    return [maybeEntry];
+  }
+
+  const nestedAccounts = maybeEntry?.accounts;
+  if (Array.isArray(nestedAccounts)) {
+    return nestedAccounts.filter((entry) => isJupiterHoldingEntry(entry));
+  }
+
+  const nestedObjects = Object.values(maybeEntry).filter(
+    (value) => value && typeof value === "object"
+  );
+
+  return nestedObjects.filter((entry) => isJupiterHoldingEntry(entry));
+}
+
+function isJupiterHoldingEntry(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const entry = value as any;
+  return Boolean(
+    entry?.account ||
+      entry?.tokenAccount ||
+      entry?.amount ||
+      entry?.rawAmount ||
+      entry?.uiAmount ||
+      entry?.uiAmountString ||
+      entry?.tokenAmount?.amount ||
+      entry?.tokenAmount?.uiAmount ||
+      entry?.tokenAmount?.uiAmountString
+  );
+}
+
+function dedupeTokenAccountEntries(tokens: TokenInfo[]): TokenInfo[] {
+  const byKey = new Map<string, TokenInfo>();
+
+  for (const token of tokens) {
+    const key = token.tokenAccount
+      ? `account:${token.tokenAccount}`
+      : `${token.mint || token.symbol}:${token.rawAmount}:${token.type || "token"}`;
+    const existing = byKey.get(key);
+
+    if (!existing) {
+      byKey.set(key, token);
+      continue;
+    }
+
+    const existingScore = scoreTokenEntry(existing);
+    const candidateScore = scoreTokenEntry(token);
+    const preferred = candidateScore > existingScore ? token : existing;
+    const fallback = preferred === token ? existing : token;
+    const mergedValueUsd = Math.max(existing.valueUsd || 0, token.valueUsd || 0);
+
+    byKey.set(key, {
+      ...fallback,
+      ...preferred,
+      valueUsd: mergedValueUsd > 0 ? mergedValueUsd : preferred.valueUsd,
+      priceUsd:
+        preferred.priceUsd ||
+        fallback.priceUsd ||
+        (mergedValueUsd > 0 && preferred.balance > 0
+          ? mergedValueUsd / preferred.balance
+          : undefined),
+      explorerUrl: preferred.explorerUrl || fallback.explorerUrl,
+      tokenProgram: preferred.tokenProgram || fallback.tokenProgram,
+      tokenAccount: preferred.tokenAccount || fallback.tokenAccount,
+    });
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => b.balance - a.balance);
+}
+
+function scoreTokenEntry(token: TokenInfo): number {
+  let score = 0;
+  if (token.source === "jupiter-ultra-holdings") {
+    score += 4;
+  } else if (token.source === "solana-rpc") {
+    score += 3;
+  } else {
+    score += 1;
+  }
+
+  if (token.valueUsd && token.valueUsd > 0) {
+    score += 2;
+  }
+
+  const symbol = String(token.symbol || "").trim();
+  if (symbol && !symbol.includes("...")) {
+    score += 1;
+  }
+
+  const name = String(token.name || "").trim().toLowerCase();
+  if (name && name !== "unknown token") {
+    score += 1;
+  }
+
+  return score;
+}
+
 function dedupeProtocolPositions(positions: TokenInfo[]): TokenInfo[] {
   const byKey = new Map<string, TokenInfo>();
 
   for (const position of positions) {
-    const key = [
+    const obligationAddress = String(position.obligationAddress || "").trim();
+    const vaultAddress = String(position.vaultAddress || "").trim();
+    const market = String(position.market || "").trim();
+    const mint = String(position.mint || "").trim();
+
+    let primaryFingerprint = "";
+    if (obligationAddress) {
+      primaryFingerprint = `obligation:${obligationAddress}`;
+    } else if (vaultAddress) {
+      primaryFingerprint = `vault:${vaultAddress}`;
+    } else if (market && mint) {
+      primaryFingerprint = `market-mint:${market}|${mint}`;
+    }
+
+    const hasPrimaryId = Boolean(primaryFingerprint);
+    const fallbackFingerprint = [
       position.type || "",
-      position.obligationAddress || "",
-      position.vaultAddress || "",
-      position.market || "",
       position.symbol || "",
       position.name || "",
+      position.rawAmount || "",
     ].join("|");
+    const key = hasPrimaryId ? primaryFingerprint : fallbackFingerprint;
     const existing = byKey.get(key);
     const candidateValue = position.valueUsd ?? position.balance;
     const existingValue = existing?.valueUsd ?? existing?.balance ?? 0;
 
-    if (!existing || candidateValue > existingValue) {
+    if (!existing) {
       byKey.set(key, position);
+      continue;
     }
+
+    const existingScore = scoreProtocolPosition(existing);
+    const candidateScore = scoreProtocolPosition(position);
+    const preferred =
+      candidateScore > existingScore ||
+      (candidateScore === existingScore && candidateValue > existingValue)
+        ? position
+        : existing;
+    const fallback = preferred === position ? existing : position;
+
+    byKey.set(key, {
+      ...fallback,
+      ...preferred,
+      valueUsd: Math.max(existing.valueUsd || 0, position.valueUsd || 0) || preferred.valueUsd,
+      priceUsd: preferred.priceUsd || fallback.priceUsd,
+      symbol: preferred.symbol || fallback.symbol,
+      name: preferred.name || fallback.name,
+      mint: preferred.mint || fallback.mint,
+      market: preferred.market || fallback.market,
+      obligationAddress: preferred.obligationAddress || fallback.obligationAddress,
+      vaultAddress: preferred.vaultAddress || fallback.vaultAddress,
+    });
   }
 
   return Array.from(byKey.values()).sort(
     (a, b) => (b.valueUsd ?? b.balance) - (a.valueUsd ?? a.balance)
   );
+}
+
+function scoreProtocolPosition(position: TokenInfo): number {
+  let score = 0;
+
+  if (position.valueUsd && position.valueUsd > 0) {
+    score += 4;
+  }
+  if (position.priceUsd && position.priceUsd > 0) {
+    score += 2;
+  }
+  if (position.obligationAddress || position.vaultAddress || position.market) {
+    score += 2;
+  }
+  if (position.mint) {
+    score += 2;
+  }
+  if (position.symbol && position.symbol !== "KVAULT" && position.symbol !== "KAMINO") {
+    score += 1;
+  }
+  if (
+    position.name &&
+    !position.name.toLowerCase().includes("position") &&
+    !position.name.toLowerCase().includes("kamino")
+  ) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function filterRedundantProtocolPositions(
+  baseTokens: TokenInfo[],
+  protocolPositions: TokenInfo[]
+): TokenInfo[] {
+  const tokenMints = new Set(
+    baseTokens
+      .map((token) => token.mint)
+      .filter((mint): mint is string => Boolean(mint))
+  );
+
+  return protocolPositions.filter((position) => {
+    if (position.type !== "KAMINO_VAULT") {
+      return true;
+    }
+
+    if (!position.mint || !tokenMints.has(position.mint)) {
+      return true;
+    }
+
+    // If the vault share token is already in wallet holdings, avoid duplicate row.
+    return false;
+  });
 }
 
 function firstFiniteNumber(values: any[]): number {
@@ -1115,6 +1534,60 @@ function firstFiniteNumber(values: any[]): number {
   }
 
   return 0;
+}
+
+function firstNonEmptyString(values: any[]): string {
+  for (const value of values) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    const parsed = String(value).trim();
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return "";
+}
+
+function normalizeInt(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed >= 0) {
+    return parsed;
+  }
+
+  return fallback;
+}
+
+function parseRawTokenAmount(rawAmount: string, decimals: number): number {
+  if (!rawAmount) {
+    return 0;
+  }
+
+  const parsedRaw = Number(rawAmount);
+  if (!Number.isFinite(parsedRaw) || parsedRaw <= 0) {
+    return 0;
+  }
+
+  if (!Number.isFinite(decimals) || decimals <= 0) {
+    return parsedRaw;
+  }
+
+  return parsedRaw / Math.pow(10, decimals);
+}
+
+function normalizeKaminoUsd(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+
+  // Kamino occasionally returns fixed-point "Sf" values (~1e18 scale).
+  if (value > 1e12) {
+    return value / 1e18;
+  }
+
+  return value;
 }
 
 function firstFiniteSignedNumber(values: any[]): number | null {
@@ -1147,7 +1620,7 @@ async function fetchJupiterStakePositions(address: string): Promise<TokenInfo[]>
     try {
       const response = await fetch(endpoint, {
         headers,
-        next: { revalidate: 120 },
+        cache: "no-store",
       });
       if (!response.ok) {
         continue;

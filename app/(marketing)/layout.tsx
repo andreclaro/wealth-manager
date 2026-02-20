@@ -24,12 +24,6 @@ export default function MarketingLayout({
             </Link>
             <nav className="flex items-center gap-4">
               <Link
-                href="/bank-playground"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Bank Playground
-              </Link>
-              <Link
                 href="/login"
                 className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
