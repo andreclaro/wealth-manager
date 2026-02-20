@@ -11,6 +11,7 @@ const AVALANCHE_C_CHAIN = "avalanche-c" as const;
 const AVALANCHE_P_CHAIN = "avalanche-p" as const;
 const ROUTESCAN_AVALANCHE_C_CHAIN_ID = 43114;
 const AVALANCHE_PLATFORM_RPC = "https://api.avax.network/ext/bc/P";
+const AVALANCHE_C_CHAIN_RPC = "https://api.avax.network/ext/bc/C/rpc";
 const AVALANCHE_MAINNET_HRP = "avax";
 const AVALANCHE_P_CHAIN_DECIMALS = 9;
 
@@ -120,6 +121,9 @@ interface ChainScanResult {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const address = searchParams.get("address")?.trim();
+  const pAddressOverride = normalizeAvalanchePAddress(
+    searchParams.get("pAddress") || searchParams.get("avalanchePAddress")
+  );
   const chainParam = (searchParams.get("chain") || "auto").toLowerCase();
 
   if (!address) {
@@ -155,7 +159,7 @@ export async function GET(request: NextRequest) {
   }
 
   const settled = await Promise.allSettled(
-    chainsToScan.map((chain) => scanChain(chain, address))
+    chainsToScan.map((chain) => scanChain(chain, address, pAddressOverride))
   );
 
   const chainResults: ChainScanResult[] = settled.map((result, index) => {
@@ -271,9 +275,31 @@ function isAvalancheCChain(chain: SupportedChain): chain is typeof AVALANCHE_C_C
   return chain === AVALANCHE_C_CHAIN;
 }
 
-async function scanChain(chain: SupportedChain, evmAddress: string) {
+function normalizeAvalanchePAddress(address: string | null | undefined) {
+  const raw = String(address || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = raw.toLowerCase();
+  if (/^p-avax1[0-9a-z]+$/.test(normalized)) {
+    return `P-${normalized.slice(2)}`;
+  }
+
+  if (/^avax1[0-9a-z]+$/.test(normalized)) {
+    return `P-${normalized}`;
+  }
+
+  return null;
+}
+
+async function scanChain(
+  chain: SupportedChain,
+  evmAddress: string,
+  pAddressOverride?: string | null
+) {
   if (chain === AVALANCHE_P_CHAIN) {
-    return fetchAvalanchePChainData(evmAddress);
+    return fetchAvalanchePChainData(evmAddress, pAddressOverride);
   }
 
   if (chain === "tron") {
@@ -378,10 +404,17 @@ async function fetchBlockscoutLegacyData(
   }
 
   const tokenItems = await fetchLegacyTokenItems(endpoint, address);
-  const nativeBalance = normalizeAtomicBalance(
+  let nativeBalance = normalizeAtomicBalance(
     nativeBalanceData?.result ?? nativeBalanceData?.balance,
     nativeDecimals
   );
+
+  if (chain === AVALANCHE_C_CHAIN && nativeBalance <= 0) {
+    const rpcNativeBalance = await fetchAvalancheCChainNativeBalance(address);
+    if (rpcNativeBalance > nativeBalance) {
+      nativeBalance = rpcNativeBalance;
+    }
+  }
 
   const tokens = tokenItems
     .map((item: any): WalletToken | null =>
@@ -534,7 +567,14 @@ async function fetchBlockscoutV2Data(
     addressData?.balance ??
     addressData?.native_balance ??
     "0";
-  const nativeBalance = normalizeAtomicBalance(nativeBalanceRaw, nativeDecimals);
+  let nativeBalance = normalizeAtomicBalance(nativeBalanceRaw, nativeDecimals);
+
+  if (chain === AVALANCHE_C_CHAIN && nativeBalance <= 0) {
+    const rpcNativeBalance = await fetchAvalancheCChainNativeBalance(address);
+    if (rpcNativeBalance > nativeBalance) {
+      nativeBalance = rpcNativeBalance;
+    }
+  }
 
   const tokenItems = Array.isArray(tokenBalancesData)
     ? tokenBalancesData
@@ -740,19 +780,25 @@ interface AvalanchePChainStakeResult {
   outputs?: any[];
 }
 
-async function fetchAvalanchePChainData(evmAddress: string): Promise<ChainScanResult> {
-  const pChainAddress = evmToAvalanchePChainAddress(evmAddress);
-  const pChainShortAddress = pChainAddress.replace(/^P-/, "");
+async function fetchAvalanchePChainData(
+  evmAddress: string,
+  pAddressOverride?: string | null
+): Promise<ChainScanResult> {
+  const derivedPChainAddress = evmToAvalanchePChainAddress(evmAddress);
+  const candidateAddresses = Array.from(
+    new Set(
+      [pAddressOverride, derivedPChainAddress]
+        .filter((value): value is string => Boolean(value))
+        .flatMap((value) => [value, value.replace(/^P-/, "")])
+    )
+  );
+  const primaryPChainAddress =
+    candidateAddresses.find((address) => address.startsWith("P-")) ||
+    `P-${candidateAddresses[0]}`;
 
   const [balanceResult, stakeResult] = await Promise.allSettled([
-    fetchAvalanchePChainBalanceWithFallback([
-      pChainAddress,
-      pChainShortAddress,
-    ]),
-    fetchAvalanchePChainStakeWithFallback([
-      pChainAddress,
-      pChainShortAddress,
-    ]),
+    fetchAvalanchePChainBalanceWithFallback(candidateAddresses),
+    fetchAvalanchePChainStakeWithFallback(candidateAddresses),
   ]);
 
   if (balanceResult.status === "rejected" && stakeResult.status === "rejected") {
@@ -779,14 +825,14 @@ async function fetchAvalanchePChainData(evmAddress: string): Promise<ChainScanRe
   const tokens: WalletToken[] = [];
   if (totalStaked > 0) {
     tokens.push({
-      contractAddress: `avalanche-p-staking:${pChainAddress}`,
+      contractAddress: `avalanche-p-staking:${primaryPChainAddress}`,
       symbol: "AVAX",
       name: "AVAX Staked (Avalanche P-Chain)",
       decimals: AVALANCHE_P_CHAIN_DECIMALS,
       balance: totalStaked,
       type: "AVALANCHE_P_STAKING",
       chain: AVALANCHE_P_CHAIN,
-      explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, pChainAddress),
+      explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, primaryPChainAddress),
     });
   }
 
@@ -799,7 +845,7 @@ async function fetchAvalanchePChainData(evmAddress: string): Promise<ChainScanRe
       symbol: "AVAX",
       balance: nativeBalance,
       decimals: AVALANCHE_P_CHAIN_DECIMALS,
-      explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, pChainAddress),
+      explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, primaryPChainAddress),
     },
     tokens,
   };
@@ -917,6 +963,53 @@ function extractAvalanchePChainStakedAmount(result: AvalanchePChainStakeResult) 
   }, 0);
 
   return Math.max(directStaked, fromOutputs);
+}
+
+async function fetchAvalancheCChainNativeBalance(address: string) {
+  try {
+    const response = await fetch(AVALANCHE_C_CHAIN_RPC, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_getBalance",
+        params: [address, "latest"],
+      }),
+      next: { revalidate: 30 },
+    });
+
+    if (!response.ok) {
+      return 0;
+    }
+
+    const payload = await response.json();
+    return normalizeHexAtomicBalance(payload?.result, 18);
+  } catch {
+    return 0;
+  }
+}
+
+function normalizeHexAtomicBalance(value: unknown, decimals: number) {
+  if (typeof value !== "string") {
+    return 0;
+  }
+
+  try {
+    const atomic = BigInt(value);
+    const divisor = 10n ** BigInt(decimals);
+    const whole = Number(atomic / divisor);
+    const fraction = Number(atomic % divisor) / Math.pow(10, decimals);
+    if (!Number.isFinite(whole) || !Number.isFinite(fraction)) {
+      return 0;
+    }
+
+    return whole + fraction;
+  } catch {
+    return 0;
+  }
 }
 
 async function fetchHyperliquidMainnetData(address: string): Promise<ChainScanResult> {
@@ -1245,6 +1338,7 @@ async function parseHyperliquidVaultEquities(data: any): Promise<WalletToken[]> 
 
       const shortAddress = shortenAddress(entry.vaultAddress);
       const baseName = vaultName || `Vault ${shortAddress}`;
+      const vaultSymbol = deriveHyperliquidVaultSymbol(vaultName, entry.vaultAddress);
       const lockSuffix =
         Number.isFinite(entry.lockedUntilTimestamp) && entry.lockedUntilTimestamp > Date.now()
           ? " (Locked)"
@@ -1252,7 +1346,7 @@ async function parseHyperliquidVaultEquities(data: any): Promise<WalletToken[]> 
 
       return {
         contractAddress: `hyperliquid-vault:${entry.vaultAddress}`,
-        symbol: "USDC",
+        symbol: vaultSymbol,
         name: `${baseName}${lockSuffix}`,
         decimals: 6,
         balance: entry.equity,
@@ -1269,6 +1363,25 @@ async function parseHyperliquidVaultEquities(data: any): Promise<WalletToken[]> 
   return settled
     .filter((entry): entry is PromiseFulfilledResult<WalletToken> => entry.status === "fulfilled")
     .map((entry) => entry.value);
+}
+
+function deriveHyperliquidVaultSymbol(vaultName: string, vaultAddress: string) {
+  const normalizedName = String(vaultName || "").trim();
+  const parenMatch = normalizedName.match(/\(([A-Za-z0-9._-]{2,12})\)/);
+  if (parenMatch && parenMatch[1]) {
+    return parenMatch[1].toUpperCase();
+  }
+
+  if (/hyperliquidity\s+provider/i.test(normalizedName)) {
+    return "HLP";
+  }
+
+  const alnum = normalizedName.replace(/[^A-Za-z0-9]/g, "");
+  if (alnum.length >= 2 && alnum.length <= 10) {
+    return alnum.toUpperCase();
+  }
+
+  return `VLT-${shortenAddress(vaultAddress).replace(/\.\.\./g, "")}`.slice(0, 12);
 }
 
 function shortenAddress(address: string) {
