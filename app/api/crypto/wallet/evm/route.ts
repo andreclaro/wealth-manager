@@ -311,24 +311,16 @@ function resolveChains(
   hasPAddress: boolean
 ): SupportedChain[] {
   if (!chainParam || chainParam === "all" || chainParam === "auto") {
-    if (!hasEvmAddress) {
-      return [AVALANCHE_P_CHAIN];
-    }
-
-    return hasPAddress
-      ? [...AUTO_SCAN_CHAINS]
-      : AUTO_SCAN_CHAINS.filter((chain) => chain !== AVALANCHE_P_CHAIN);
+    return AUTO_SCAN_CHAINS.filter((chain) =>
+      canScanChain(chain, hasEvmAddress, hasPAddress)
+    );
   }
 
   const aliasChains = CHAIN_ALIASES[chainParam];
   if (aliasChains?.length) {
-    const filteredAliases = aliasChains.filter((chain) => {
-      if (chain === AVALANCHE_P_CHAIN) {
-        return hasPAddress;
-      }
-
-      return hasEvmAddress;
-    });
+    const filteredAliases = aliasChains.filter((chain) =>
+      canScanChain(chain, hasEvmAddress, hasPAddress)
+    );
 
     if (filteredAliases.length > 0) {
       return filteredAliases;
@@ -338,18 +330,26 @@ function resolveChains(
   }
 
   if (isSupportedChain(chainParam)) {
-    if (!hasEvmAddress && chainParam !== AVALANCHE_P_CHAIN) {
-      throw new Error("Unsupported chain");
+    if (canScanChain(chainParam, hasEvmAddress, hasPAddress)) {
+      return [chainParam];
     }
 
-    if (chainParam === AVALANCHE_P_CHAIN && !hasPAddress) {
-      throw new Error("Unsupported chain");
-    }
-
-    return [chainParam];
+    throw new Error("Unsupported chain");
   }
 
   throw new Error("Unsupported chain");
+}
+
+function canScanChain(
+  chain: SupportedChain,
+  hasEvmAddress: boolean,
+  hasPAddress: boolean
+) {
+  if (chain === AVALANCHE_P_CHAIN) {
+    return hasPAddress;
+  }
+
+  return hasEvmAddress;
 }
 
 function isSupportedChain(chain: string): chain is SupportedChain {
@@ -909,21 +909,12 @@ async function fetchAvalanchePChainData(
 
   // Stake retrieval is the critical signal for P-chain assets, so fetch it first.
   // Public endpoints aggressively rate-limit bursts; sequential calls improve success rate.
-  let stakeResult: PromiseSettledResult<AvalanchePChainStakeResult>;
-  try {
-    const stakeValue = await fetchAvalanchePChainStakeWithFallback(candidateAddresses);
-    stakeResult = { status: "fulfilled", value: stakeValue };
-  } catch (error) {
-    stakeResult = { status: "rejected", reason: error };
-  }
-
-  let balanceResult: PromiseSettledResult<AvalanchePChainBalanceResult>;
-  try {
-    const balanceValue = await fetchAvalanchePChainBalanceWithFallback(candidateAddresses);
-    balanceResult = { status: "fulfilled", value: balanceValue };
-  } catch (error) {
-    balanceResult = { status: "rejected", reason: error };
-  }
+  const stakeResult = await settlePromise(() =>
+    fetchAvalanchePChainStakeWithFallback(candidateAddresses)
+  );
+  const balanceResult = await settlePromise(() =>
+    fetchAvalanchePChainBalanceWithFallback(candidateAddresses)
+  );
 
   if (balanceResult.status === "rejected" && stakeResult.status === "rejected") {
     const balanceError = normalizeErrorMessage(balanceResult.reason);
@@ -1015,50 +1006,69 @@ async function fetchAvalanchePChainData(
 }
 
 async function fetchAvalanchePChainBalanceWithFallback(addresses: string[]) {
-  let lastError: Error | null = null;
-
-  for (const address of addresses) {
-    try {
-      return await callAvalanchePlatformRpc<AvalanchePChainBalanceResult>(
+  return fetchAvalanchePChainByAddressWithFallback<AvalanchePChainBalanceResult>(
+    addresses,
+    async (address) =>
+      callAvalanchePlatformRpc<AvalanchePChainBalanceResult>(
         "platform.getBalance",
         { address }
-      );
-    } catch (error) {
-      lastError = error as Error;
-    }
-  }
-
-  if (lastError) {
-    throw lastError;
-  }
-
-  throw new Error("Unable to resolve Avalanche P-Chain balance");
+      ),
+    "Unable to resolve Avalanche P-Chain balance"
+  );
 }
 
 async function fetchAvalanchePChainStakeWithFallback(addresses: string[]) {
+  return fetchAvalanchePChainByAddressWithFallback<AvalanchePChainStakeResult>(
+    addresses,
+    async (address) =>
+      callAvalanchePlatformRpc<AvalanchePChainStakeResult>(
+        "platform.getStake",
+        { addresses: [address] }
+      ),
+    "Unable to resolve Avalanche P-Chain stake",
+    () => fetchAvalanchePChainStakeViaGlacier(addresses)
+  );
+}
+
+async function settlePromise<T>(
+  promiseFactory: () => Promise<T>
+): Promise<PromiseSettledResult<T>> {
+  try {
+    const value = await promiseFactory();
+    return { status: "fulfilled", value };
+  } catch (reason) {
+    return { status: "rejected", reason };
+  }
+}
+
+async function fetchAvalanchePChainByAddressWithFallback<T>(
+  addresses: string[],
+  fetcher: (address: string) => Promise<T>,
+  errorMessage: string,
+  fallback?: () => Promise<T | null>
+) {
   let lastError: Error | null = null;
 
   for (const address of addresses) {
     try {
-      return await callAvalanchePlatformRpc<AvalanchePChainStakeResult>(
-        "platform.getStake",
-        { addresses: [address] }
-      );
+      return await fetcher(address);
     } catch (error) {
       lastError = error as Error;
     }
   }
 
-  const glacierFallback = await fetchAvalanchePChainStakeViaGlacier(addresses);
-  if (glacierFallback) {
-    return glacierFallback;
+  if (fallback) {
+    const fallbackResult = await fallback();
+    if (fallbackResult) {
+      return fallbackResult;
+    }
   }
 
   if (lastError) {
     throw lastError;
   }
 
-  throw new Error("Unable to resolve Avalanche P-Chain stake");
+  throw new Error(errorMessage);
 }
 
 async function fetchAvalanchePChainStakeViaGlacier(
