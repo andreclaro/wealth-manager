@@ -3,7 +3,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { Metaplex } from "@metaplex-foundation/js";
 
 const SOLANA_RPC =
-  process.env.SOLANA_RPC_URL || "https://api.mainnet.solana.com";
+  process.env.SOLANA_RPC_URL?.trim() || "https://solana-rpc.publicnode.com";
 const SOLSCAN_BASE_URL = "https://solscan.io";
 const KAMINO_API_BASE = "https://api.kamino.finance";
 const JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
@@ -468,7 +468,8 @@ async function fetchStakePositions(connection: Connection, ownerAddress: string)
       totalStakedSol,
     };
   } catch (error) {
-    console.error("Failed to fetch stake accounts:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Stake accounts unavailable on current Solana RPC: ${message}`);
     return { tokens: [] as TokenInfo[], totalStakedSol: 0 };
   }
 }
