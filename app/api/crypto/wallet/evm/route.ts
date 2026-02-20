@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { encode as bech32Encode, toWords as bech32ToWords } from "bech32";
 import {
   HttpTransport,
   InfoClient,
@@ -6,24 +7,12 @@ import {
 import { NextRequest, NextResponse } from "next/server";
 
 const ROUTESCAN_EVM_API_BASE = "https://api.routescan.io/v2/network";
-
-const AVALANCHE_CHAINS = [
-  "avalanche-c",
-  "avalanche-fuji",
-  "avalanche-beam",
-  "avalanche-dfk",
-  "avalanche-dexalot",
-  "avalanche-shrapnel",
-] as const;
-
-const ROUTESCAN_CHAIN_IDS: Record<(typeof AVALANCHE_CHAINS)[number], number> = {
-  "avalanche-c": 43114,
-  "avalanche-fuji": 43113,
-  "avalanche-beam": 4337,
-  "avalanche-dfk": 53935,
-  "avalanche-dexalot": 432204,
-  "avalanche-shrapnel": 2044,
-};
+const AVALANCHE_C_CHAIN = "avalanche-c" as const;
+const AVALANCHE_P_CHAIN = "avalanche-p" as const;
+const ROUTESCAN_AVALANCHE_C_CHAIN_ID = 43114;
+const AVALANCHE_PLATFORM_RPC = "https://api.avax.network/ext/bc/P";
+const AVALANCHE_MAINNET_HRP = "avax";
+const AVALANCHE_P_CHAIN_DECIMALS = 9;
 
 const BLOCKSCOUT_ENDPOINTS = {
   ethereum: ["https://eth.blockscout.com"],
@@ -31,23 +20,8 @@ const BLOCKSCOUT_ENDPOINTS = {
   base: ["https://base.blockscout.com"],
   arbitrum: ["https://arbitrum.blockscout.com"],
   polygon: ["https://polygon.blockscout.com"],
-  "avalanche-c": [
+  [AVALANCHE_C_CHAIN]: [
     `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/43114/etherscan/api`,
-  ],
-  "avalanche-fuji": [
-    `${ROUTESCAN_EVM_API_BASE}/testnet/evm/43113/etherscan/api`,
-  ],
-  "avalanche-beam": [
-    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/4337/etherscan/api`,
-  ],
-  "avalanche-dfk": [
-    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/53935/etherscan/api`,
-  ],
-  "avalanche-dexalot": [
-    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/432204/etherscan/api`,
-  ],
-  "avalanche-shrapnel": [
-    `${ROUTESCAN_EVM_API_BASE}/mainnet/evm/2044/etherscan/api`,
   ],
   hyperliquid: [
     "https://www.hyperscan.com",
@@ -65,24 +39,20 @@ const AUTO_SCAN_CHAINS = [
   "hyperliquid-mainnet",
   "tron",
   "polygon",
-  ...AVALANCHE_CHAINS,
+  AVALANCHE_C_CHAIN,
+  AVALANCHE_P_CHAIN,
 ] as const;
 
 type SupportedChain = (typeof AUTO_SCAN_CHAINS)[number];
 type EvmChain = keyof typeof BLOCKSCOUT_ENDPOINTS;
-type AvalancheChain = (typeof AVALANCHE_CHAINS)[number];
 
 const NATIVE_SYMBOLS: Record<SupportedChain, string> = {
   ethereum: "ETH",
   optimism: "ETH",
   base: "ETH",
   arbitrum: "ETH",
-  "avalanche-c": "AVAX",
-  "avalanche-fuji": "AVAX",
-  "avalanche-beam": "BEAM",
-  "avalanche-dfk": "JEWEL",
-  "avalanche-dexalot": "ALOT",
-  "avalanche-shrapnel": "SHRAP",
+  [AVALANCHE_C_CHAIN]: "AVAX",
+  [AVALANCHE_P_CHAIN]: "AVAX",
   hyperliquid: "HYPE",
   "hyperliquid-mainnet": "USDC",
   tron: "TRX",
@@ -94,12 +64,8 @@ const NATIVE_DECIMALS: Record<SupportedChain, number> = {
   optimism: 18,
   base: 18,
   arbitrum: 18,
-  "avalanche-c": 18,
-  "avalanche-fuji": 18,
-  "avalanche-beam": 18,
-  "avalanche-dfk": 18,
-  "avalanche-dexalot": 18,
-  "avalanche-shrapnel": 18,
+  [AVALANCHE_C_CHAIN]: 18,
+  [AVALANCHE_P_CHAIN]: AVALANCHE_P_CHAIN_DECIMALS,
   hyperliquid: 18,
   "hyperliquid-mainnet": 6,
   tron: 6,
@@ -107,15 +73,13 @@ const NATIVE_DECIMALS: Record<SupportedChain, number> = {
 };
 
 const CHAIN_ALIASES: Record<string, SupportedChain[]> = {
-  avalanche: [...AVALANCHE_CHAINS],
-  avax: [...AVALANCHE_CHAINS],
-  "avalanche-all": [...AVALANCHE_CHAINS],
+  avalanche: [AVALANCHE_C_CHAIN, AVALANCHE_P_CHAIN],
+  avax: [AVALANCHE_C_CHAIN, AVALANCHE_P_CHAIN],
 };
 
 const TRONSCAN_API = "https://apilist.tronscanapi.com";
 const HYPERLIQUID_EXPLORER_BASE = "https://app.hyperliquid.xyz/explorer";
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const MAX_HYPERLIQUID_VAULTS_TO_EXPAND = 20;
 const HYPERLIQUID_INFO_CLIENT = new InfoClient({
   transport: new HttpTransport({
     timeout: 10_000,
@@ -146,7 +110,7 @@ interface NativeBalanceEntry {
 
 interface ChainScanResult {
   chain: SupportedChain;
-  source: "blockscout" | "tronscan" | "hyperliquid";
+  source: "blockscout" | "tronscan" | "hyperliquid" | "avalanche-platform";
   status: "ok" | "error";
   tokens: WalletToken[];
   nativeBalance?: NativeBalanceEntry;
@@ -303,11 +267,15 @@ function isSupportedChain(chain: string): chain is SupportedChain {
   return (AUTO_SCAN_CHAINS as readonly string[]).includes(chain);
 }
 
-function isAvalancheChain(chain: SupportedChain): chain is AvalancheChain {
-  return (AVALANCHE_CHAINS as readonly string[]).includes(chain);
+function isAvalancheCChain(chain: SupportedChain): chain is typeof AVALANCHE_C_CHAIN {
+  return chain === AVALANCHE_C_CHAIN;
 }
 
 async function scanChain(chain: SupportedChain, evmAddress: string) {
+  if (chain === AVALANCHE_P_CHAIN) {
+    return fetchAvalanchePChainData(evmAddress);
+  }
+
   if (chain === "tron") {
     return fetchTronChainData(evmAddress);
   }
@@ -324,6 +292,10 @@ async function scanChain(chain: SupportedChain, evmAddress: string) {
 }
 
 function getChainSource(chain: SupportedChain): ChainScanResult["source"] {
+  if (chain === AVALANCHE_P_CHAIN) {
+    return "avalanche-platform";
+  }
+
   if (chain === "tron") {
     return "tronscan";
   }
@@ -747,6 +719,206 @@ async function fetchTronChainData(evmAddress: string): Promise<ChainScanResult> 
   };
 }
 
+interface AvalanchePlatformRpcResponse<T> {
+  jsonrpc?: string;
+  id?: number | string;
+  result?: T;
+  error?: {
+    code?: number;
+    message?: string;
+    data?: unknown;
+  };
+}
+
+interface AvalanchePChainBalanceResult {
+  balance?: string;
+}
+
+interface AvalanchePChainStakeResult {
+  staked?: string;
+  stakedOutputs?: any[];
+  outputs?: any[];
+}
+
+async function fetchAvalanchePChainData(evmAddress: string): Promise<ChainScanResult> {
+  const pChainAddress = evmToAvalanchePChainAddress(evmAddress);
+  const pChainShortAddress = pChainAddress.replace(/^P-/, "");
+
+  const [balanceResult, stakeResult] = await Promise.allSettled([
+    fetchAvalanchePChainBalanceWithFallback([
+      pChainAddress,
+      pChainShortAddress,
+    ]),
+    fetchAvalanchePChainStakeWithFallback([
+      pChainAddress,
+      pChainShortAddress,
+    ]),
+  ]);
+
+  if (balanceResult.status === "rejected" && stakeResult.status === "rejected") {
+    const balanceError = normalizeErrorMessage(balanceResult.reason);
+    const stakeError = normalizeErrorMessage(stakeResult.reason);
+    throw new Error(
+      `Avalanche P-Chain RPC error: ${stakeError || balanceError || "No data available"}`
+    );
+  }
+
+  const nativeBalance =
+    balanceResult.status === "fulfilled"
+      ? normalizeAtomicBalance(
+          balanceResult.value?.balance,
+          AVALANCHE_P_CHAIN_DECIMALS
+        )
+      : 0;
+
+  const totalStaked =
+    stakeResult.status === "fulfilled"
+      ? extractAvalanchePChainStakedAmount(stakeResult.value)
+      : 0;
+
+  const tokens: WalletToken[] = [];
+  if (totalStaked > 0) {
+    tokens.push({
+      contractAddress: `avalanche-p-staking:${pChainAddress}`,
+      symbol: "AVAX",
+      name: "AVAX Staked (Avalanche P-Chain)",
+      decimals: AVALANCHE_P_CHAIN_DECIMALS,
+      balance: totalStaked,
+      type: "AVALANCHE_P_STAKING",
+      chain: AVALANCHE_P_CHAIN,
+      explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, pChainAddress),
+    });
+  }
+
+  return {
+    chain: AVALANCHE_P_CHAIN,
+    source: "avalanche-platform",
+    status: "ok",
+    nativeBalance: {
+      chain: AVALANCHE_P_CHAIN,
+      symbol: "AVAX",
+      balance: nativeBalance,
+      decimals: AVALANCHE_P_CHAIN_DECIMALS,
+      explorerUrl: getAddressExplorerUrl(AVALANCHE_P_CHAIN, pChainAddress),
+    },
+    tokens,
+  };
+}
+
+async function fetchAvalanchePChainBalanceWithFallback(addresses: string[]) {
+  let lastError: Error | null = null;
+
+  for (const address of addresses) {
+    try {
+      return await callAvalanchePlatformRpc<AvalanchePChainBalanceResult>(
+        "platform.getBalance",
+        { address }
+      );
+    } catch (error) {
+      lastError = error as Error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error("Unable to resolve Avalanche P-Chain balance");
+}
+
+async function fetchAvalanchePChainStakeWithFallback(addresses: string[]) {
+  let lastError: Error | null = null;
+
+  for (const address of addresses) {
+    try {
+      return await callAvalanchePlatformRpc<AvalanchePChainStakeResult>(
+        "platform.getStake",
+        { addresses: [address] }
+      );
+    } catch (error) {
+      lastError = error as Error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error("Unable to resolve Avalanche P-Chain stake");
+}
+
+async function callAvalanchePlatformRpc<T>(
+  method: string,
+  params: Record<string, unknown>
+): Promise<T> {
+  const response = await fetch(AVALANCHE_PLATFORM_RPC, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method,
+      params,
+    }),
+    next: { revalidate: 30 },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Avalanche RPC HTTP ${response.status}`);
+  }
+
+  let payload: AvalanchePlatformRpcResponse<T>;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("Invalid Avalanche RPC response");
+  }
+
+  if (payload?.error) {
+    throw new Error(payload.error.message || `Avalanche RPC ${method} failed`);
+  }
+
+  if (!payload?.result) {
+    throw new Error(`Avalanche RPC ${method} returned no result`);
+  }
+
+  return payload.result;
+}
+
+function extractAvalanchePChainStakedAmount(result: AvalanchePChainStakeResult) {
+  const directStaked = normalizeAtomicBalance(
+    result?.staked,
+    AVALANCHE_P_CHAIN_DECIMALS
+  );
+
+  const entries = Array.isArray(result?.stakedOutputs)
+    ? result.stakedOutputs
+    : Array.isArray(result?.outputs)
+      ? result.outputs
+      : [];
+
+  const fromOutputs = entries.reduce((sum: number, entry: any) => {
+    const amount = normalizeAtomicBalance(
+      entry?.amount ??
+        entry?.stakeAmount ??
+        entry?.stakedAmount ??
+        entry?.output?.amount ??
+        entry?.output?.stakeAmount,
+      AVALANCHE_P_CHAIN_DECIMALS
+    );
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return sum;
+    }
+
+    return sum + amount;
+  }, 0);
+
+  return Math.max(directStaked, fromOutputs);
+}
+
 async function fetchHyperliquidMainnetData(address: string): Promise<ChainScanResult> {
   const [spotResult, perpResult, vaultResult, stakingResult] = await Promise.allSettled([
     fetchHyperliquidSpotState(address),
@@ -777,16 +949,7 @@ async function fetchHyperliquidMainnetData(address: string): Promise<ChainScanRe
 
   const spot = parseHyperliquidSpotState(spotData);
   const perps = parseHyperliquidPerpState(perpData);
-  const vaultBreakdown = await fetchHyperliquidVaultAssetBreakdown(
-    vaultData,
-    address
-  );
-  const vaults = [
-    ...vaultBreakdown.tokens,
-    ...parseHyperliquidVaultEquities(vaultData, {
-      excludeVaultAddresses: vaultBreakdown.resolvedVaultAddresses,
-    }),
-  ];
+  const vaults = await parseHyperliquidVaultEquities(vaultData);
   const staking = parseHyperliquidStakingSummary(stakingData);
   const perpWithdrawable = normalizeHyperliquidBalance(
     perpData?.withdrawable
@@ -854,198 +1017,10 @@ async function fetchHyperliquidStakingSummary(address: string) {
   });
 }
 
-async function fetchHyperliquidVaultDetails(vaultAddress: string, user?: string) {
+async function fetchHyperliquidVaultDetails(vaultAddress: string) {
   return HYPERLIQUID_INFO_CLIENT.vaultDetails({
     vaultAddress,
-    user,
   });
-}
-
-async function fetchHyperliquidVaultAssetBreakdown(
-  vaultEquities: any,
-  userAddress: string
-) {
-  const result: {
-    tokens: WalletToken[];
-    resolvedVaultAddresses: Set<string>;
-  } = {
-    tokens: [],
-    resolvedVaultAddresses: new Set<string>(),
-  };
-
-  if (!Array.isArray(vaultEquities)) {
-    return result;
-  }
-
-  const entries = vaultEquities
-    .map((entry: any) => ({
-      vaultAddress: String(entry?.vaultAddress || "").trim(),
-      equity: normalizeHyperliquidBalance(entry?.equity),
-    }))
-    .filter((entry) => entry.vaultAddress && entry.equity > 0)
-    .sort((a, b) => b.equity - a.equity)
-    .slice(0, MAX_HYPERLIQUID_VAULTS_TO_EXPAND);
-
-  if (entries.length === 0) {
-    return result;
-  }
-
-  const settled = await Promise.allSettled(
-    entries.map(async (entry) => {
-      let details: any = null;
-      try {
-        details = await fetchHyperliquidVaultDetails(
-          entry.vaultAddress,
-          userAddress
-        );
-      } catch {
-        details = null;
-      }
-
-      const vaultShare = getHyperliquidVaultUserShare({
-        details,
-        userAddress,
-      });
-
-      if (!vaultShare || vaultShare <= 0) {
-        return {
-          vaultAddress: entry.vaultAddress,
-          tokens: [] as WalletToken[],
-        };
-      }
-
-      const accountAddresses = getHyperliquidVaultAccountAddresses(
-        entry.vaultAddress,
-        details
-      );
-      const rawTokens: WalletToken[] = [];
-
-      const accountSettled = await Promise.allSettled(
-        accountAddresses.map(async (accountAddress) => {
-          const [spotResult, perpResult] = await Promise.allSettled([
-            fetchHyperliquidSpotState(accountAddress),
-            fetchHyperliquidPerpState(accountAddress),
-          ]);
-
-          const spotData =
-            spotResult.status === "fulfilled" ? spotResult.value : null;
-          const perpData =
-            perpResult.status === "fulfilled" ? perpResult.value : null;
-
-          if (!spotData && !perpData) {
-            return [] as WalletToken[];
-          }
-
-          return parseHyperliquidVaultStateTokensRaw({
-            vaultAddress: entry.vaultAddress,
-            accountAddress,
-            spotData,
-            perpData,
-          });
-        })
-      );
-
-      for (const accountEntry of accountSettled) {
-        if (accountEntry.status === "fulfilled") {
-          rawTokens.push(...accountEntry.value);
-        }
-      }
-
-      const tokens = scaleHyperliquidVaultTokens(rawTokens, vaultShare);
-
-      return {
-        vaultAddress: entry.vaultAddress,
-        tokens,
-      };
-    })
-  );
-
-  for (const settledEntry of settled) {
-    if (settledEntry.status !== "fulfilled") {
-      continue;
-    }
-
-    const { vaultAddress, tokens } = settledEntry.value;
-    if (tokens.length === 0) {
-      continue;
-    }
-
-    result.tokens.push(...tokens);
-    result.resolvedVaultAddresses.add(vaultAddress);
-  }
-
-  return result;
-}
-
-function getHyperliquidVaultAccountAddresses(vaultAddress: string, details: any) {
-  const addresses = new Set<string>([vaultAddress]);
-
-  const childAddresses =
-    details?.relationship?.type === "parent" &&
-    Array.isArray(details?.relationship?.data?.childAddresses)
-      ? details.relationship.data.childAddresses
-      : [];
-
-  for (const childAddress of childAddresses) {
-    const normalized = String(childAddress || "").trim();
-    if (normalized) {
-      addresses.add(normalized);
-    }
-  }
-
-  return Array.from(addresses);
-}
-
-function getHyperliquidVaultUserShare(params: {
-  details: any;
-  userAddress: string;
-}) {
-  const { details, userAddress } = params;
-  if (!details || typeof details !== "object") {
-    return null;
-  }
-
-  const followers = Array.isArray(details?.followers) ? details.followers : [];
-  const userAddressLower = userAddress.toLowerCase();
-  const leaderAddressLower = String(details?.leader || "").toLowerCase();
-  const isLeader = userAddressLower !== "" && userAddressLower === leaderAddressLower;
-
-  let totalEquity = 0;
-  let userEquity = normalizeHyperliquidBalance(details?.followerState?.vaultEquity);
-  let leaderEquity = 0;
-
-  for (const follower of followers) {
-    const followerEquity = normalizeHyperliquidBalance(follower?.vaultEquity);
-    if (followerEquity <= 0) {
-      continue;
-    }
-
-    totalEquity += followerEquity;
-
-    const followerUser = String(follower?.user || "").toLowerCase();
-    if (followerUser === userAddressLower) {
-      userEquity = Math.max(userEquity, followerEquity);
-    }
-
-    if (followerUser === "leader") {
-      leaderEquity = Math.max(leaderEquity, followerEquity);
-    }
-  }
-
-  if (userEquity <= 0 && isLeader && leaderEquity > 0) {
-    userEquity = leaderEquity;
-  }
-
-  if (totalEquity <= 0 || userEquity <= 0) {
-    return null;
-  }
-
-  const rawShare = userEquity / totalEquity;
-  if (!Number.isFinite(rawShare) || rawShare <= 0) {
-    return null;
-  }
-
-  return Math.min(1, rawShare);
 }
 
 function parseHyperliquidSpotState(data: any) {
@@ -1245,145 +1220,55 @@ function parseHyperliquidPerpState(data: any): WalletToken[] {
   return tokens;
 }
 
-function parseHyperliquidVaultStateTokensRaw(params: {
-  vaultAddress: string;
-  accountAddress: string;
-  spotData: any;
-  perpData: any;
-}): WalletToken[] {
-  const { vaultAddress, accountAddress, spotData, perpData } = params;
-
-  const spot = parseHyperliquidSpotState(spotData);
-  const perps = parseHyperliquidPerpState(perpData);
-  const vaultUsdcBalance =
-    spot.usdcBalance > 0
-      ? spot.usdcBalance
-      : normalizeHyperliquidBalance(perpData?.withdrawable);
-
-  const vaultTokens: WalletToken[] = [...spot.tokens, ...perps];
-
-  if (vaultUsdcBalance > 0) {
-    vaultTokens.push({
-      contractAddress: "hyperliquid-spot:USDC",
-      symbol: "USDC",
-      name: "USDC (Hyperliquid Spot)",
-      decimals: 6,
-      balance: vaultUsdcBalance,
-      type: "HYPERLIQUID_SPOT",
-      chain: "hyperliquid-mainnet",
-      explorerUrl: getHyperliquidTokenExplorerUrl("USDC", "spot"),
-      priceUsd: 1,
-      valueUsd: vaultUsdcBalance,
-      priceSource: "hyperliquid",
-    });
-  }
-
-  if (vaultTokens.length === 0) {
-    return [];
-  }
-
-  const vaultTag = shortenAddress(vaultAddress);
-  const accountTag = shortenAddress(accountAddress);
-  const accountSuffix =
-    accountAddress.toLowerCase() !== vaultAddress.toLowerCase()
-      ? ` [Sub ${accountTag}]`
-      : "";
-
-  return vaultTokens
-    .map((token) => {
-      return {
-        ...token,
-        contractAddress: `${token.contractAddress}:vault:${vaultAddress}:account:${accountAddress}`,
-        name: `${token.name} [Vault ${vaultTag}]${accountSuffix}`,
-      };
-    })
-    .filter((token): token is WalletToken => Boolean(token));
-}
-
-function scaleHyperliquidVaultTokens(
-  tokens: WalletToken[],
-  share: number
-): WalletToken[] {
-  if (tokens.length === 0) {
-    return [];
-  }
-
-  if (!Number.isFinite(share) || share <= 0) {
-    return [];
-  }
-
-  const clampedShare = Math.min(1, share);
-
-  return tokens
-    .map((token) => {
-      const scaledBalance = token.balance * clampedShare;
-      if (!Number.isFinite(scaledBalance) || scaledBalance <= 0) {
-        return null;
-      }
-
-      const scaledValue =
-        typeof token.valueUsd === "number" && Number.isFinite(token.valueUsd)
-          ? token.valueUsd * clampedShare
-          : typeof token.priceUsd === "number" &&
-              Number.isFinite(token.priceUsd)
-            ? scaledBalance * token.priceUsd
-            : undefined;
-
-      return {
-        ...token,
-        balance: scaledBalance,
-        valueUsd: scaledValue,
-      };
-    })
-    .filter((token: WalletToken | null): token is WalletToken => Boolean(token));
-}
-
-function parseHyperliquidVaultEquities(
-  data: any,
-  options?: { excludeVaultAddresses?: Set<string> }
-): WalletToken[] {
-  const exclude = options?.excludeVaultAddresses ?? new Set<string>();
-
+async function parseHyperliquidVaultEquities(data: any): Promise<WalletToken[]> {
   if (!Array.isArray(data)) {
     return [];
   }
 
-  return data
-    .map((entry: any): WalletToken | null => {
-      const vaultAddress = String(entry?.vaultAddress || "").trim();
-      if (!vaultAddress) {
-        return null;
+  const entries = data
+    .map((entry: any) => ({
+      vaultAddress: String(entry?.vaultAddress || "").trim(),
+      equity: normalizeHyperliquidBalance(entry?.equity),
+      lockedUntilTimestamp: Number(entry?.lockedUntilTimestamp || 0),
+    }))
+    .filter((entry) => entry.vaultAddress && entry.equity > 0);
+
+  const settled = await Promise.allSettled(
+    entries.map(async (entry): Promise<WalletToken> => {
+      let vaultName = "";
+      try {
+        const details = await fetchHyperliquidVaultDetails(entry.vaultAddress);
+        vaultName = typeof details?.name === "string" ? details.name.trim() : "";
+      } catch {
+        vaultName = "";
       }
 
-      if (exclude.has(vaultAddress)) {
-        return null;
-      }
-
-      const equity = normalizeHyperliquidBalance(entry?.equity);
-      if (!Number.isFinite(equity) || equity <= 0) {
-        return null;
-      }
-
-      const shortAddress =
-        vaultAddress.length > 10
-          ? `${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}`
-          : vaultAddress;
+      const shortAddress = shortenAddress(entry.vaultAddress);
+      const baseName = vaultName || `Vault ${shortAddress}`;
+      const lockSuffix =
+        Number.isFinite(entry.lockedUntilTimestamp) && entry.lockedUntilTimestamp > Date.now()
+          ? " (Locked)"
+          : "";
 
       return {
-        contractAddress: `hyperliquid-vault:${vaultAddress}`,
+        contractAddress: `hyperliquid-vault:${entry.vaultAddress}`,
         symbol: "USDC",
-        name: `Hyperliquid Vault (${shortAddress})`,
+        name: `${baseName}${lockSuffix}`,
         decimals: 6,
-        balance: equity,
+        balance: entry.equity,
         type: "HYPERLIQUID_VAULT",
         chain: "hyperliquid-mainnet",
-        explorerUrl: getAddressExplorerUrl("hyperliquid-mainnet", vaultAddress),
+        explorerUrl: getAddressExplorerUrl("hyperliquid-mainnet", entry.vaultAddress),
         priceUsd: 1,
-        valueUsd: equity,
+        valueUsd: entry.equity,
         priceSource: "hyperliquid",
       };
     })
-    .filter((token: WalletToken | null): token is WalletToken => Boolean(token));
+  );
+
+  return settled
+    .filter((entry): entry is PromiseFulfilledResult<WalletToken> => entry.status === "fulfilled")
+    .map((entry) => entry.value);
 }
 
 function shortenAddress(address: string) {
@@ -1518,12 +1403,16 @@ function getAddressExplorerUrl(chain: SupportedChain, address: string) {
     return `https://tronscan.org/#/address/${address}`;
   }
 
+  if (chain === AVALANCHE_P_CHAIN) {
+    return `https://subnets.avax.network/p-chain/address/${address}`;
+  }
+
   if (chain === "hyperliquid-mainnet") {
     return `${HYPERLIQUID_EXPLORER_BASE}/address/${address}`;
   }
 
-  if (isAvalancheChain(chain)) {
-    return `https://routescan.io/address/${address}?chainid=${ROUTESCAN_CHAIN_IDS[chain]}`;
+  if (isAvalancheCChain(chain)) {
+    return `https://routescan.io/address/${address}?chainid=${ROUTESCAN_AVALANCHE_C_CHAIN_ID}`;
   }
 
   return `${getExplorerBaseUrl(BLOCKSCOUT_ENDPOINTS[chain][0])}/address/${address}`;
@@ -1534,8 +1423,8 @@ function getTokenExplorerUrl(
   tokenAddress: string,
   endpoint: string
 ) {
-  if (isAvalancheChain(chain)) {
-    return `https://routescan.io/token/${tokenAddress}?chainid=${ROUTESCAN_CHAIN_IDS[chain]}`;
+  if (chain === AVALANCHE_C_CHAIN) {
+    return `https://routescan.io/token/${tokenAddress}?chainid=${ROUTESCAN_AVALANCHE_C_CHAIN_ID}`;
   }
 
   return `${getExplorerBaseUrl(endpoint)}/token/${tokenAddress}`;
@@ -1566,6 +1455,16 @@ function evmToTronAddress(evmAddress: string) {
   const checksum = secondHash.subarray(0, 4);
 
   return base58Encode(Buffer.concat([tronHexPayload, checksum]));
+}
+
+function evmToAvalanchePChainAddress(evmAddress: string) {
+  const normalized = evmAddress.toLowerCase().replace(/^0x/, "");
+  const addressBytes = Buffer.from(normalized, "hex");
+  const bech32Address = bech32Encode(
+    AVALANCHE_MAINNET_HRP,
+    bech32ToWords(addressBytes)
+  );
+  return `P-${bech32Address}`;
 }
 
 function base58Encode(buffer: Buffer) {
