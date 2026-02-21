@@ -29,7 +29,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { PortfolioAnalysis, AssetPerformance, ASSET_TYPE_LABELS, ASSET_TYPE_COLORS } from "@/types";
+import { PortfolioAnalysis, AssetPerformance, ASSET_TYPE_LABELS } from "@/types";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 export default function AnalysisPage() {
@@ -59,13 +59,14 @@ export default function AnalysisPage() {
   if (!data) return null;
 
   const { summary, performance, topPerformers, worstPerformers, allocation, riskMetrics } = data;
+  const monochromePalette = ["#111111", "#ffffff"];
 
   // Prepare chart data
-  const typeChartData = Object.entries(allocation.byType).map(([type, data]) => ({
+  const typeChartData = Object.entries(allocation.byType).map(([type, typeData], index) => ({
     name: ASSET_TYPE_LABELS[type as keyof typeof ASSET_TYPE_LABELS] || type,
-    value: data.valueUSD,
-    percent: data.percent,
-    color: ASSET_TYPE_COLORS[type as keyof typeof ASSET_TYPE_COLORS] || "#8884d8",
+    value: typeData.valueUSD,
+    percent: typeData.percent,
+    color: monochromePalette[index % monochromePalette.length],
   }));
 
   const currencyChartData = Object.entries(allocation.byCurrency).map(([currency, data]) => ({
@@ -81,12 +82,12 @@ export default function AnalysisPage() {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="wm-page space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="wm-page-header">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Portfolio Analysis</h1>
-          <p className="text-muted-foreground">
+          <h1 className="wm-page-title">Portfolio Analysis</h1>
+          <p className="wm-page-subtitle">
             Deep insights into your portfolio performance and risk metrics
           </p>
         </div>
@@ -119,20 +120,20 @@ export default function AnalysisPage() {
       </div>
 
       {/* AI Insights Placeholder */}
-      <Card className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950/30 dark:to-blue-950/30 border-purple-200 dark:border-purple-800">
+      <Card className="wm-surface">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Brain className="h-5 w-5 text-purple-600" />
-            <CardTitle className="text-purple-900 dark:text-purple-100">AI Insights</CardTitle>
+            <Brain className="h-5 w-5" />
+            <CardTitle>AI Insights</CardTitle>
           </div>
-          <CardDescription className="text-purple-700 dark:text-purple-300">
+          <CardDescription>
             Smart analysis and recommendations powered by AI (coming soon)
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            <div className="flex items-start gap-3 p-3 bg-white/60 dark:bg-black/20 rounded-lg">
-              <Target className="h-5 w-5 text-blue-600 mt-0.5" />
+            <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
+              <Target className="mt-0.5 h-5 w-5" />
               <div>
                 <p className="font-medium text-sm">Portfolio Optimization</p>
                 <p className="text-sm text-muted-foreground">
@@ -140,8 +141,8 @@ export default function AnalysisPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-start gap-3 p-3 bg-white/60 dark:bg-black/20 rounded-lg">
-              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
+            <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5" />
               <div>
                 <p className="font-medium text-sm">Risk Alerts</p>
                 <p className="text-sm text-muted-foreground">
@@ -155,14 +156,14 @@ export default function AnalysisPage() {
 
       {/* Allocation Charts */}
       <Tabs defaultValue="type" className="space-y-4">
-        <TabsList>
+        <TabsList className="wm-surface">
           <TabsTrigger value="type">By Type</TabsTrigger>
           <TabsTrigger value="currency">By Currency</TabsTrigger>
           <TabsTrigger value="account">By Account</TabsTrigger>
         </TabsList>
         
         <TabsContent value="type">
-          <Card>
+          <Card className="wm-surface">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <PieChart className="h-5 w-5" />
@@ -180,7 +181,9 @@ export default function AnalysisPage() {
                       labelLine={false}
                       label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(1)}%`}
                       outerRadius={100}
-                      fill="#8884d8"
+                      fill="#111111"
+                      stroke="#111111"
+                      strokeWidth={1}
                       dataKey="value"
                     >
                       {typeChartData.map((entry, index) => (
@@ -196,7 +199,7 @@ export default function AnalysisPage() {
         </TabsContent>
 
         <TabsContent value="currency">
-          <Card>
+          <Card className="wm-surface">
             <CardHeader>
               <CardTitle>Allocation by Currency</CardTitle>
             </CardHeader>
@@ -208,7 +211,7 @@ export default function AnalysisPage() {
                     <XAxis dataKey="name" />
                     <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
                     <Tooltip formatter={(value) => typeof value === "number" ? formatCurrency(value, "USD") : value} />
-                    <Bar dataKey="value" fill="#3b82f6" />
+                    <Bar dataKey="value" fill="#111111" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -217,7 +220,7 @@ export default function AnalysisPage() {
         </TabsContent>
 
         <TabsContent value="account">
-          <Card>
+          <Card className="wm-surface">
             <CardHeader>
               <CardTitle>Allocation by Account</CardTitle>
             </CardHeader>
@@ -229,7 +232,7 @@ export default function AnalysisPage() {
                     <XAxis dataKey="name" />
                     <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
                     <Tooltip formatter={(value) => typeof value === "number" ? formatCurrency(value, "USD") : value} />
-                    <Bar dataKey="value" fill="#8b5cf6" />
+                    <Bar dataKey="value" fill="#ffffff" stroke="#111111" strokeWidth={1} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -239,7 +242,7 @@ export default function AnalysisPage() {
       </Tabs>
 
       {/* Risk Metrics */}
-      <Card>
+      <Card className="wm-surface">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5" />
@@ -301,7 +304,7 @@ export default function AnalysisPage() {
       {/* Performance Tables */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Top Performers */}
-        <Card>
+        <Card className="wm-surface">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-green-600">
               <TrendingUp className="h-5 w-5" />
@@ -321,7 +324,7 @@ export default function AnalysisPage() {
         </Card>
 
         {/* Worst Performers */}
-        <Card>
+        <Card className="wm-surface">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-red-600">
               <TrendingDown className="h-5 w-5" />
@@ -342,7 +345,7 @@ export default function AnalysisPage() {
       </div>
 
       {/* Full Performance Table */}
-      <Card>
+      <Card className="wm-surface">
         <CardHeader>
           <CardTitle>All Assets Performance</CardTitle>
           <CardDescription>Detailed breakdown of every asset in your portfolio</CardDescription>
@@ -409,7 +412,7 @@ function SummaryCard({
   trend?: "positive" | "negative";
 }) {
   return (
-    <Card>
+    <Card className="wm-surface wm-soft-hover">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
         <div className={`${trend === "positive" ? "text-green-600" : trend === "negative" ? "text-red-600" : "text-muted-foreground"}`}>

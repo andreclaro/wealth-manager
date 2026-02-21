@@ -11,7 +11,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Chrome, Wallet } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ArrowRight, Chrome, Wallet } from "lucide-react";
 
 export default function LoginPage() {
   const { status } = useSession();
@@ -34,16 +35,25 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center space-y-4">
+    <div className="relative flex min-h-[calc(100vh-64px)] items-center justify-center overflow-hidden px-4 py-10">
+      <div className="pointer-events-none absolute inset-0 wm-grid-motion opacity-40" />
+      <div className="pointer-events-none absolute -left-20 top-10 h-56 w-56 rounded-full bg-foreground/8 blur-3xl wm-float-slow" />
+      <div className="pointer-events-none absolute -right-16 bottom-0 h-64 w-64 rounded-full bg-foreground/8 blur-3xl wm-float" />
+
+      <Card className="wm-fade-up wm-surface w-full max-w-md border-foreground/20">
+        <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
-            <div className="p-3 bg-primary/10 rounded-full">
-              <Wallet className="h-10 w-10 text-primary" />
+            <div className="rounded-full border bg-muted/40 p-3">
+              <Wallet className="h-9 w-9 text-foreground" />
             </div>
           </div>
+          <div className="flex justify-center">
+            <Badge variant="outline" className="rounded-full px-3 py-1 uppercase tracking-wide text-[10px]">
+              Secure Access
+            </Badge>
+          </div>
           <div>
-            <CardTitle className="text-2xl">Welcome Back</CardTitle>
+            <CardTitle className="text-2xl tracking-tight">Welcome Back</CardTitle>
             <CardDescription className="mt-2">
               Sign in to track your investment portfolio
             </CardDescription>
@@ -51,12 +61,13 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <Button
-            variant="outline"
-            className="w-full h-12 text-base"
+            variant="default"
+            className="h-12 w-full text-base font-medium"
             onClick={() => signIn("google", { callbackUrl: "/app" })}
           >
             <Chrome className="mr-2 h-5 w-5" />
             Continue with Google
+            <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
 
           <div className="relative">

@@ -164,17 +164,17 @@ export default function AccountsPage() {
 
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="wm-page space-y-6">
+      <div className="wm-page-header">
         <div>
-          <h1 className="text-3xl font-bold">Accounts</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="wm-page-title">Accounts</h1>
+          <p className="wm-page-subtitle">
             Manage your accounts and wallets for tracking all assets
           </p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button className="wm-soft-hover">
               <Plus className="mr-2 h-4 w-4" />
               Add Account
             </Button>
@@ -271,14 +271,14 @@ export default function AccountsPage() {
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(3)].map((_, i) => (
-            <Card key={i} className="animate-pulse">
+            <Card key={i} className="wm-surface animate-pulse">
               <CardHeader className="h-24 bg-muted" />
               <CardContent className="h-20 bg-muted mt-2" />
             </Card>
           ))}
         </div>
       ) : accounts.length === 0 ? (
-        <Card className="text-center py-12">
+        <Card className="wm-surface text-center py-12">
           <CardContent>
             <Building2 className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Accounts Yet</h3>
@@ -294,7 +294,7 @@ export default function AccountsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {accounts.map((account) => (
-            <Card key={account.id}>
+            <Card key={account.id} className="wm-surface wm-soft-hover">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                   <div className="min-w-0 flex-1">

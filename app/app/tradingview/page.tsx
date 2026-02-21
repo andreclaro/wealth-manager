@@ -155,17 +155,17 @@ export default function TradingViewPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="wm-page space-y-6">
       {/* Header */}
-      <header className="border-b">
-        <div className="max-w-[1600px] mx-auto px-4 py-4 flex items-center justify-between">
+      <header className="wm-surface rounded-2xl">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-4">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => router.push("/app")}>
+            <Button variant="ghost" size="sm" className="rounded-full" onClick={() => router.push("/app")}>
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back
             </Button>
             <div>
-              <h1 className="text-xl font-bold flex items-center gap-2">
+              <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
                 <TrendingUp className="h-5 w-5" />
                 TradingView Charts
               </h1>
@@ -178,18 +178,20 @@ export default function TradingViewPage() {
             <Button
               variant="outline"
               size="sm"
+              className="wm-surface"
               onClick={() => setTheme(theme === "light" ? "dark" : "light")}
             >
-              {theme === "light" ? "🌙" : "☀️"}
+              {theme === "light" ? "Dark" : "Light"}
             </Button>
             <Button
               variant="outline"
               size="sm"
+              className="wm-surface"
               onClick={() => setIsFullscreen(!isFullscreen)}
             >
               {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </Button>
-            <Button variant="outline" size="sm" onClick={openInTradingView}>
+            <Button variant="outline" size="sm" className="wm-surface" onClick={openInTradingView}>
               <ExternalLink className="h-4 w-4 mr-1" />
               Open in TradingView
             </Button>
@@ -197,11 +199,11 @@ export default function TradingViewPage() {
         </div>
       </header>
 
-      <div className="max-w-[1600px] mx-auto px-4 py-6">
+      <div className="mx-auto max-w-[1600px] px-2 sm:px-4">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Left Sidebar - Assets */}
           <div className="lg:col-span-1 space-y-4">
-            <Card>
+            <Card className="wm-surface">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Wallet className="h-4 w-4" />
@@ -272,7 +274,7 @@ export default function TradingViewPage() {
           {/* Main Content - Chart */}
           <div className="lg:col-span-3 space-y-4">
             {/* Symbol Input */}
-            <Card>
+            <Card className="wm-surface">
               <CardContent className="pt-6">
                 <form onSubmit={handleLoad} className="flex flex-wrap gap-4 items-end">
                   <div className="flex-1 min-w-[200px]">
@@ -351,7 +353,7 @@ export default function TradingViewPage() {
             </Card>
 
             {/* Chart Container */}
-            <Card className={isFullscreen ? "fixed inset-4 z-50" : ""}>
+            <Card className={`wm-surface ${isFullscreen ? "fixed inset-4 z-50" : ""}`}>
               <CardHeader className="py-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg flex items-center gap-2">

@@ -57,15 +57,15 @@
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(1 0 0);
+  --secondary-foreground: oklch(0.145 0 0);
+  --muted: oklch(1 0 0);
+  --muted-foreground: oklch(0.3 0 0);
+  --accent: oklch(0.205 0 0);
+  --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.205 0 0 / 20%);
+  --input: oklch(0.205 0 0 / 20%);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -148,4 +148,249 @@
 .scrollbar-thin::-webkit-scrollbar-thumb {
   background-color: hsl(var(--muted));
   border-radius: 3px;
+}
+
+/* Marketing landing page motion utilities */
+@keyframes wm-fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes wm-float {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -12px, 0);
+  }
+}
+
+@keyframes wm-grid-pan {
+  0% {
+    background-position: 0 0, 0 0;
+  }
+  100% {
+    background-position: 64px 64px, -64px -64px;
+  }
+}
+
+@keyframes wm-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes wm-soft-pulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes wm-line-draw {
+  from {
+    stroke-dashoffset: 420;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes wm-dot-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes wm-grow-width {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes wm-ring {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.wm-fade-up {
+  animation: wm-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+}
+
+.wm-delay-1 {
+  animation-delay: 0.1s;
+}
+
+.wm-delay-2 {
+  animation-delay: 0.2s;
+}
+
+.wm-delay-3 {
+  animation-delay: 0.3s;
+}
+
+.wm-float {
+  animation: wm-float 6.5s ease-in-out infinite;
+}
+
+.wm-float-slow {
+  animation: wm-float 9s ease-in-out infinite;
+}
+
+.wm-grid-motion {
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklch, var(--foreground) 10%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--foreground) 10%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 42px 42px;
+  animation: wm-grid-pan 26s linear infinite;
+}
+
+.wm-marquee {
+  overflow: hidden;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 10%,
+    black 90%,
+    transparent
+  );
+}
+
+.wm-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: wm-marquee 24s linear infinite;
+}
+
+.wm-marquee:hover .wm-marquee-track {
+  animation-play-state: paused;
+}
+
+.wm-pulse-soft {
+  animation: wm-soft-pulse 4.5s ease-in-out infinite;
+}
+
+.wm-chart-path {
+  stroke-dasharray: 420;
+  stroke-dashoffset: 420;
+  animation: wm-line-draw 1.6s ease forwards 0.3s;
+}
+
+.wm-chart-dot {
+  animation: wm-dot-pulse 1.9s ease-in-out infinite 1.4s;
+  transform-origin: center;
+}
+
+.wm-grow-bar {
+  transform-origin: left center;
+  animation: wm-grow-width 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wm-ping-ring {
+  animation: wm-ring 2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wm-fade-up,
+  .wm-float,
+  .wm-float-slow,
+  .wm-marquee-track,
+  .wm-pulse-soft,
+  .wm-chart-path,
+  .wm-chart-dot,
+  .wm-grow-bar,
+  .wm-ping-ring,
+  .wm-grid-motion {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Shared app page primitives */
+.wm-page {
+  position: relative;
+}
+
+.wm-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.wm-page-title {
+  font-size: clamp(1.6rem, 1.3rem + 1vw, 2rem);
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.wm-page-subtitle {
+  margin-top: 0.35rem;
+  color: var(--muted-foreground);
+}
+
+.wm-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wm-surface {
+  border: 1px solid color-mix(in oklch, var(--foreground) 20%, transparent);
+  background: var(--background);
+  backdrop-filter: blur(4px);
+}
+
+.wm-soft-hover {
+  transition:
+    border-color 200ms ease,
+    transform 250ms ease,
+    box-shadow 250ms ease,
+    background-color 250ms ease;
+}
+
+.wm-soft-hover:hover {
+  border-color: color-mix(in oklch, var(--foreground) 24%, transparent);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px -18px color-mix(in oklch, var(--foreground) 45%, transparent);
 }

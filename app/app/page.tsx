@@ -41,8 +41,11 @@ export default function Dashboard() {
   const fetchData = async (days = historyDays) => {
     try {
       setLoading(true);
-      const daysParam = days === 0 ? "" : `days=${days}&`;
-      const url = `/api/portfolio/history?${daysParam}includeAssets=true`;
+      const historyQuery = new URLSearchParams({
+        days: String(days),
+        includeAssets: "true",
+      });
+      const url = `/api/portfolio/history?${historyQuery.toString()}`;
       console.log("Fetching history:", url, "days:", days);
       const [summaryRes, assetsRes, historyRes] = await Promise.all([
         fetch("/api/portfolio/summary"),
@@ -139,20 +142,21 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="wm-page space-y-8">
       {/* Header Actions */}
-      <div className="flex items-center justify-between">
+      <div className="wm-page-header">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">
+          <h1 className="wm-page-title">Dashboard</h1>
+          <p className="wm-page-subtitle">
             Overview of your investment portfolio
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="wm-page-actions">
           <Button
             variant="outline"
             onClick={handleRefreshAll}
             disabled={refreshing}
+            className="wm-surface"
           >
             <RefreshCw
               className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
@@ -161,7 +165,7 @@ export default function Dashboard() {
           </Button>
           <Dialog open={addingAsset} onOpenChange={setAddingAsset}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="wm-soft-hover">
                 <Plus className="mr-2 h-4 w-4" />
                 Add Asset
               </Button>
@@ -182,7 +186,7 @@ export default function Dashboard() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        <Card className="wm-surface wm-soft-hover">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Total Value (EUR)
@@ -196,7 +200,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="wm-surface wm-soft-hover">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Total Value (USD)
@@ -210,7 +214,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="wm-surface wm-soft-hover">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Assets</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
@@ -220,7 +224,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="wm-surface wm-soft-hover">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Asset Types</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -245,19 +249,19 @@ export default function Dashboard() {
 
       {/* Recent Assets */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Recent Assets</h2>
-          <Button variant="outline" onClick={() => router.push("/app/assets")}>
+        <div className="wm-page-header">
+          <h2 className="text-xl font-semibold tracking-tight">Recent Assets</h2>
+          <Button variant="outline" className="wm-surface" onClick={() => router.push("/app/assets")}>
             View All
           </Button>
         </div>
 
         {assets.length === 0 ? (
-          <Card className="p-8 text-center">
+          <Card className="wm-surface p-8 text-center">
             <p className="text-muted-foreground mb-4">
               No assets in your portfolio yet. Start by adding your first asset!
             </p>
-            <Button onClick={() => setAddingAsset(true)}>
+            <Button onClick={() => setAddingAsset(true)} className="wm-soft-hover">
               <Plus className="mr-2 h-4 w-4" />
               Add Your First Asset
             </Button>

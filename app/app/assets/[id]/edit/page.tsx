@@ -154,15 +154,15 @@ export default function EditAssetPage({ params }: EditAssetPageProps) {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <Button variant="ghost" onClick={() => router.push("/app/assets")}>
+    <div className="wm-page mx-auto max-w-4xl space-y-6">
+      <Button variant="ghost" className="w-fit rounded-full" onClick={() => router.push("/app/assets")}>
         <ArrowLeft className="mr-2 h-4 w-4" />
         Back to Assets
       </Button>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Edit Form */}
-        <Card>
+        <Card className="wm-surface">
           <CardHeader>
             <CardTitle>Edit Asset: {asset.symbol}</CardTitle>
           </CardHeader>

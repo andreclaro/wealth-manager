@@ -244,19 +244,20 @@ export default function AssetsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="wm-page space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="wm-page-header">
         <div>
-          <h1 className="text-3xl font-bold">Assets</h1>
-          <p className="text-muted-foreground">
+          <h1 className="wm-page-title">Assets</h1>
+          <p className="wm-page-subtitle">
             Manage your investment portfolio
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="wm-page-actions">
           <Button
             variant="outline"
             onClick={() => setSetupWizardOpen(true)}
+            className="wm-surface"
           >
             <Wand2 className="mr-2 h-4 w-4" />
             Setup Wizard
@@ -264,13 +265,14 @@ export default function AssetsPage() {
           <Button
             variant="outline"
             onClick={() => setCsvImportOpen(true)}
+            className="wm-surface"
           >
             <Upload className="mr-2 h-4 w-4" />
             Import CSV
           </Button>
           <Dialog open={addingAsset} onOpenChange={setAddingAsset}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="wm-soft-hover">
                 <Plus className="mr-2 h-4 w-4" />
                 Add Asset
               </Button>
@@ -308,7 +310,7 @@ export default function AssetsPage() {
             {accountTotals.map((account) => (
               <Card 
                 key={account.id} 
-                className={`cursor-pointer transition-colors flex-shrink-0 w-[180px] ${accountFilter === account.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
+                className={`wm-soft-hover wm-surface cursor-pointer transition-colors flex-shrink-0 w-[180px] ${accountFilter === account.id ? 'border-foreground/35 bg-foreground/5' : 'hover:bg-muted/50'}`}
                 onClick={() => setAccountFilter(accountFilter === account.id ? "ALL" : account.id)}
               >
                 <CardContent className="p-3">
@@ -330,6 +332,7 @@ export default function AssetsPage() {
       )}
 
       {/* Filters */}
+      <div className="wm-surface rounded-xl p-3 sm:p-4">
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -341,7 +344,7 @@ export default function AssetsPage() {
           />
         </div>
         <Select value={accountFilter} onValueChange={setAccountFilter}>
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-[200px] bg-background">
             <SelectValue placeholder="Filter by account" />
           </SelectTrigger>
           <SelectContent>
@@ -354,7 +357,7 @@ export default function AssetsPage() {
           </SelectContent>
         </Select>
         <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-[180px] bg-background">
             <SelectValue placeholder="Filter by type" />
           </SelectTrigger>
           <SelectContent>
@@ -398,6 +401,7 @@ export default function AssetsPage() {
           </div>
         </div>
       </div>
+      </div>
 
       {/* Results Count */}
       <p className="text-sm text-muted-foreground">
@@ -406,7 +410,7 @@ export default function AssetsPage() {
 
       {/* Assets Display */}
       {filteredAssets.length === 0 ? (
-        <Card className="p-8 text-center">
+        <Card className="wm-surface p-8 text-center">
           <p className="text-muted-foreground mb-4">
             {assets.length === 0
               ? "No assets in your portfolio yet. Start by adding your first asset!"
@@ -433,7 +437,7 @@ export default function AssetsPage() {
           ))}
         </div>
       ) : (
-        <Card>
+        <Card className="wm-surface">
           <Table>
             <TableHeader>
               <TableRow>

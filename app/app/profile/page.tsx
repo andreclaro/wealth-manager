@@ -182,21 +182,21 @@ export default function ProfilePage() {
 
 
   return (
-    <div className="space-y-6">
+    <div className="wm-page space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Profile</h1>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="wm-page-title">Profile</h1>
+        <p className="wm-page-subtitle">
           Manage your portfolio settings and data
         </p>
       </div>
 
       {/* Portfolio Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        <Card className="wm-surface wm-soft-hover">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded">
-                <Database className="h-5 w-5 text-primary" />
+              <div className="rounded border bg-muted/40 p-2">
+                <Database className="h-5 w-5" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Accounts</p>
@@ -205,11 +205,11 @@ export default function ProfilePage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="wm-surface wm-soft-hover">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded">
-                <Database className="h-5 w-5 text-primary" />
+              <div className="rounded border bg-muted/40 p-2">
+                <Database className="h-5 w-5" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Assets</p>
@@ -218,11 +218,11 @@ export default function ProfilePage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="wm-surface wm-soft-hover">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded">
-                <User className="h-5 w-5 text-primary" />
+              <div className="rounded border bg-muted/40 p-2">
+                <User className="h-5 w-5" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Value (USD)</p>
@@ -233,11 +233,11 @@ export default function ProfilePage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="wm-surface wm-soft-hover">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded">
-                <User className="h-5 w-5 text-primary" />
+              <div className="rounded border bg-muted/40 p-2">
+                <User className="h-5 w-5" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Value (EUR)</p>
@@ -251,7 +251,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Profile Information */}
-      <Card>
+      <Card className="wm-surface">
         <CardHeader>
           <div className="flex items-center gap-2">
             <User className="h-5 w-5" />
@@ -321,7 +321,7 @@ export default function ProfilePage() {
       </Card>
 
       {/* Data Management */}
-      <Card>
+      <Card className="wm-surface">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5" />

@@ -398,14 +398,14 @@ export default function CryptoPlaygroundPage() {
         : walletData.nativeBalance.valueUsd || 0;
 
     let total = nativeTotal;
-    total += walletData.tokens.reduce((sum, t) => sum + (t.valueUsd || 0), 0);
+    total += walletData.tokens.reduce((sum, t) => sum + getTokenUsdValue(t), 0);
     return total;
   };
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-6xl">
+    <div className="wm-page container mx-auto max-w-6xl px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold flex items-center gap-3">
+        <h1 className="wm-page-title flex items-center gap-3">
           <Wallet className="h-8 w-8 text-primary" />
           Crypto Wallet Playground
         </h1>
@@ -422,7 +422,7 @@ export default function CryptoPlaygroundPage() {
 
         {/* EVM Tab */}
         <TabsContent value="evm" className="space-y-6">
-          <Card>
+          <Card className="wm-surface">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Search className="h-5 w-5" />
@@ -498,7 +498,7 @@ export default function CryptoPlaygroundPage() {
 
         {/* Solana Tab */}
         <TabsContent value="solana" className="space-y-6">
-          <Card>
+          <Card className="wm-surface">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Search className="h-5 w-5" />
@@ -561,7 +561,7 @@ export default function CryptoPlaygroundPage() {
 
       {/* Error Display */}
       {error && (
-        <Card className="border-destructive mt-6">
+        <Card className="wm-surface border-destructive mt-6">
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-5 w-5" />
@@ -573,7 +573,7 @@ export default function CryptoPlaygroundPage() {
 
       {/* Loading State */}
       {loading && (
-        <Card className="mt-6">
+        <Card className="wm-surface mt-6">
           <CardContent className="pt-6 space-y-4">
             <Skeleton className="h-8 w-1/3" />
             <Skeleton className="h-4 w-1/2" />
@@ -590,7 +590,7 @@ export default function CryptoPlaygroundPage() {
       {walletData && !loading && (
         <div className="space-y-6 mt-6">
           {/* Summary Card */}
-          <Card>
+          <Card className="wm-surface">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span className="flex items-center gap-2">
@@ -702,7 +702,7 @@ export default function CryptoPlaygroundPage() {
           </Card>
 
           {/* Tokens Table */}
-          <Card>
+          <Card className="wm-surface">
             <CardHeader>
               <CardTitle>Token Holdings</CardTitle>
               <CardDescription>
@@ -802,9 +802,9 @@ export default function CryptoPlaygroundPage() {
                             )}
                           </td>
                           <td className="py-3 px-2">
-                            {token.valueUsd ? (
+                            {getTokenUsdValue(token) > 0 ? (
                               <span className="text-green-600 font-medium">
-                                {formatCurrency(token.valueUsd)}
+                                {formatCurrency(getTokenUsdValue(token))}
                               </span>
                             ) : (
                               <span className="text-muted-foreground">-</span>
@@ -851,7 +851,7 @@ export default function CryptoPlaygroundPage() {
           </Card>
 
           {/* Raw Data (collapsible) */}
-          <Card>
+          <Card className="wm-surface">
             <CardHeader>
               <CardTitle className="text-sm">Raw API Response</CardTitle>
             </CardHeader>
@@ -866,7 +866,7 @@ export default function CryptoPlaygroundPage() {
 
       {/* Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
-        <Card>
+        <Card className="wm-surface">
           <CardHeader>
             <CardTitle className="text-sm">EVM Chains API</CardTitle>
           </CardHeader>
@@ -878,7 +878,7 @@ export default function CryptoPlaygroundPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="wm-surface">
           <CardHeader>
             <CardTitle className="text-sm">Solana API</CardTitle>
           </CardHeader>

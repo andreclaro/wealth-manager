@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { 
@@ -17,6 +17,7 @@ import {
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +32,15 @@ export default function AppLayout({
   children: React.ReactNode;
 }>) {
   const router = useRouter();
+  const pathname = usePathname();
   const { data: session, status } = useSession();
+  const navItems = [
+    { href: "/app", label: "Dashboard", icon: PieChart },
+    { href: "/app/assets", label: "Assets", icon: TrendingUp },
+    { href: "/app/analysis", label: "Analysis", icon: BarChart3 },
+    { href: "/app/accounts", label: "Accounts", icon: Building2 },
+    { href: "/app/tradingview", label: "Charts", icon: LineChart },
+  ];
 
   useEffect(() => {
     // Check if user is logged in
@@ -56,51 +65,51 @@ export default function AppLayout({
     return null;
   }
 
+  const isActiveLink = (href: string) => {
+    if (href === "/app") {
+      return pathname === "/app";
+    }
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="relative min-h-screen overflow-x-clip bg-background">
+      <div className="pointer-events-none fixed inset-0 -z-10 wm-grid-motion opacity-[0.22]" />
+      <div className="pointer-events-none fixed -left-24 top-20 -z-10 h-72 w-72 rounded-full bg-foreground/8 blur-3xl wm-float-slow" />
+      <div className="pointer-events-none fixed -right-24 bottom-10 -z-10 h-80 w-80 rounded-full bg-foreground/8 blur-3xl wm-float" />
+
       {/* App Header */}
-      <header className="border-b bg-card sticky top-0 z-50">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/app" className="flex items-center gap-2 font-bold text-xl">
+      <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-xl">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
+          <Link href="/app" className="group flex items-center gap-2 font-semibold text-lg">
             <Logo size={28} />
-            <span>Wealth Manager</span>
+            <span className="tracking-tight transition-opacity group-hover:opacity-80">
+              Wealth Manager
+            </span>
           </Link>
-          <nav className="flex items-center gap-6">
-            <Link
-              href="/app"
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <PieChart className="h-4 w-4" />
-              Dashboard
-            </Link>
-            <Link
-              href="/app/assets"
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <TrendingUp className="h-4 w-4" />
-              Assets
-            </Link>
-            <Link
-              href="/app/analysis"
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <BarChart3 className="h-4 w-4" />
-              Analysis
-            </Link>
-            <Link
-              href="/app/accounts"
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Building2 className="h-4 w-4" />
-              Accounts
-            </Link>
-            <Link
-              href="/app/tradingview"
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <LineChart className="h-4 w-4" />
-              Charts
-            </Link>
+          <div className="flex items-center gap-2">
+            <nav className="hidden items-center gap-1 rounded-full border bg-background/75 p-1 lg:flex">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const active = isActiveLink(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                      active
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
@@ -140,14 +149,37 @@ export default function AppLayout({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+        </div>
+        <div className="container mx-auto overflow-x-auto px-4 pb-3 lg:hidden">
+          <nav className="flex min-w-max items-center gap-1 rounded-full border bg-background/70 p-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active = isActiveLink(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                    active
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </Link>
+              );
+            })}
           </nav>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">{children}</main>
+      <main className="container mx-auto px-4 py-8 sm:py-10">{children}</main>
 
-      <footer className="border-t mt-auto">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-center text-sm text-muted-foreground">
+      <footer className="mt-auto border-t bg-background/70 backdrop-blur-sm">
+        <div className="container mx-auto flex h-16 items-center justify-center px-4 text-sm text-muted-foreground">
           Wealth Manager - Track your wealth across all asset classes
         </div>
       </footer>

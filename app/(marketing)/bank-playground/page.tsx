@@ -201,9 +201,9 @@ export default function BankPlaygroundPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-10 max-w-7xl space-y-6">
+    <div className="wm-page container mx-auto max-w-7xl space-y-6 px-4 py-10">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Bank Playground</h1>
+        <h1 className="wm-page-title">Bank Playground</h1>
         <p className="text-muted-foreground">
           Read-only connectivity playground for bank and broker integrations. This
           page never writes to your portfolio database.
@@ -228,7 +228,7 @@ export default function BankPlaygroundPage() {
       )}
 
       {providersLoading ? (
-        <Card>
+        <Card className="wm-surface">
           <CardContent className="py-12 flex justify-center">
             <Loader2 className="h-6 w-6 animate-spin" />
           </CardContent>
@@ -241,7 +241,7 @@ export default function BankPlaygroundPage() {
             const isRunning = runningProviderId === provider.id;
 
             return (
-              <Card key={provider.id}>
+              <Card key={provider.id} className="wm-surface">
                 <CardHeader className="space-y-3">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div className="space-y-1">
@@ -421,7 +421,7 @@ export default function BankPlaygroundPage() {
       )}
 
       {!providersLoading && providers.length === 0 && !providersError && (
-        <Card>
+        <Card className="wm-surface">
           <CardContent className="py-8 text-sm text-muted-foreground">
             No provider descriptors returned by API.
           </CardContent>
