@@ -4,7 +4,7 @@
 
 A full-stack Next.js application for tracking investment portfolios across multiple asset classes with real-time price updates, historical tracking, and multi-currency support.
 
-**Location**: `/Users/andreclaro/Code/invest-portfolio`
+**Location**: `/path/to/wealth-manager`
 
 ## Technology Stack
 
@@ -22,7 +22,7 @@ A full-stack Next.js application for tracking investment portfolios across multi
 ## Project Structure
 
 ```
-/Users/andreclaro/Code/invest-portfolio/
+/path/to/wealth-manager/
 ├── app/                          # Next.js App Router
 │   ├── (marketing)/              # Marketing pages (landing, login)
 │   │   ├── layout.tsx            # Marketing layout
