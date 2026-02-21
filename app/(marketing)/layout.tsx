@@ -1,19 +1,27 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
+import { auth } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Wealth Manager - Track Your Wealth",
   description: "Track and manage your investment portfolio across multiple asset classes with real-time price updates, historical tracking, and multi-currency support.",
 };
 
-export default function MarketingLayout({
+export default async function MarketingLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+
+  if (session) {
+    redirect("/app");
+  }
+
   return (
     <>
         {/* Marketing Header */}
