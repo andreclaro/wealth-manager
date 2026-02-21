@@ -1106,7 +1106,7 @@ async function fetchAvalanchePChainStakeViaGlacier(
         ? payload.transactions
         : [];
 
-      let totalAtomic = 0n;
+      let totalAtomic = BigInt(0);
       for (const transaction of transactions) {
         const startTimestamp = normalizeAvalancheUnixTimestamp(
           transaction?.startTimestamp
@@ -1153,7 +1153,7 @@ function extractAvalancheGlacierStakedAtomicAmount(
     ? transaction.amountStaked
     : [];
 
-  let total = 0n;
+  let total = BigInt(0);
   for (const amountEntry of amounts) {
     const symbol = String(amountEntry?.symbol || "").toUpperCase();
     if (symbol && symbol !== "AVAX") {
@@ -1163,7 +1163,7 @@ function extractAvalancheGlacierStakedAtomicAmount(
     const rawAmount = String(amountEntry?.amount ?? "0");
     try {
       const atomic = BigInt(rawAmount);
-      if (atomic > 0n) {
+      if (atomic > BigInt(0)) {
         total += atomic;
       }
     } catch {
@@ -1391,7 +1391,7 @@ function normalizeHexAtomicBalance(value: unknown, decimals: number) {
 
   try {
     const atomic = BigInt(value);
-    const divisor = 10n ** BigInt(decimals);
+    const divisor = BigInt(10) ** BigInt(decimals);
     const whole = Number(atomic / divisor);
     const fraction = Number(atomic % divisor) / Math.pow(10, decimals);
     if (!Number.isFinite(whole) || !Number.isFinite(fraction)) {
@@ -1442,8 +1442,7 @@ async function fetchHyperliquidMainnetData(address: string): Promise<ChainScanRe
   );
   const perpAccountValue = normalizeHyperliquidBalance(
     perpData?.crossMarginSummary?.accountValue ??
-      perpData?.marginSummary?.accountValue ??
-      perpData?.accountValue
+      perpData?.marginSummary?.accountValue
   );
   const nativeUsdcBalance =
     spot.usdcBalance > 0

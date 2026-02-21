@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { 
-  Wallet, 
   TrendingUp, 
   PieChart, 
   Building2, 
@@ -15,6 +14,7 @@ import {
   Loader2,
   LineChart
 } from "lucide-react";
+import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -62,7 +62,7 @@ export default function AppLayout({
       <header className="border-b bg-card sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/app" className="flex items-center gap-2 font-bold text-xl">
-            <Wallet className="h-6 w-6 text-primary" />
+            <Logo size={28} />
             <span>Wealth Manager</span>
           </Link>
           <nav className="flex items-center gap-6">

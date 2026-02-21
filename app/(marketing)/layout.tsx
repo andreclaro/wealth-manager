@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Wallet, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/Logo";
 
 export const metadata: Metadata = {
   title: "Wealth Manager - Track Your Wealth",
@@ -19,7 +20,7 @@ export default function MarketingLayout({
         <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50">
           <div className="container mx-auto px-4 h-16 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2 font-bold text-xl">
-              <Wallet className="h-6 w-6 text-primary" />
+              <Logo size={28} />
               <span>Wealth Manager</span>
             </Link>
             <nav className="flex items-center gap-4">
@@ -47,7 +48,7 @@ export default function MarketingLayout({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
               <div className="space-y-4">
                 <div className="flex items-center gap-2 font-bold text-lg">
-                  <Wallet className="h-5 w-5 text-primary" />
+                  <Logo size={22} />
                   <span>Wealth Manager</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
