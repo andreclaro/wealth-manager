@@ -883,10 +883,10 @@ export default function CryptoPlaygroundPage() {
             <CardTitle className="text-sm">Solana API</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-2">
-            <p><strong>Sources:</strong> Solana Public RPC + Jupiter + Kamino APIs</p>
+            <p><strong>Sources:</strong> Solana Public RPC + Jupiter APIs</p>
             <p><strong>Cost:</strong> 100% Free, no API key</p>
             <p><strong>Rate Limit:</strong> 100 requests/10 seconds per IP</p>
-            <p><strong>Features:</strong> SOL balance, SPL tokens, and protocol positions (Jupiter/Kamino best-effort)</p>
+            <p><strong>Features:</strong> SOL balance, SPL tokens, and Jupiter protocol positions (best-effort)</p>
           </CardContent>
         </Card>
       </div>

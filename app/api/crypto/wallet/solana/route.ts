@@ -6,7 +6,6 @@ import { buildRateLimitResponse, checkRateLimit } from "@/lib/rateLimit";
 const SOLANA_RPC =
   process.env.SOLANA_RPC_URL?.trim() || "https://solana-rpc.publicnode.com";
 const SOLSCAN_BASE_URL = "https://solscan.io";
-const KAMINO_API_BASE = "https://api.kamino.finance";
 const JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
 const JUPITER_ULTRA_API_BASE = "https://ultra-api.jup.ag";
 const SOLANA_ADDRESS_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -172,8 +171,6 @@ export async function GET(request: NextRequest) {
       jupiterHoldingTokens,
       jupiterPortfolioPositions,
       jupiterStakePositions,
-      kaminoLendPositions,
-      kaminoVaultPositions,
     ] =
       await Promise.all([
         connection.getBalance(publicKey),
@@ -189,8 +186,6 @@ export async function GET(request: NextRequest) {
         fetchJupiterHoldingsTokens(address),
         fetchJupiterPortfolioPositions(address),
         fetchJupiterStakePositions(address),
-        fetchKaminoPositions(address),
-        fetchKaminoVaultPositions(address),
       ]);
 
     const solBalance = solBalanceLamports / 1e9;
@@ -258,7 +253,6 @@ export async function GET(request: NextRequest) {
       await delay(40);
     }
 
-    const allKaminoPositions = [...kaminoLendPositions, ...kaminoVaultPositions];
     const hasDirectJupiterStake = jupiterStakePositions.some(
       (position) => position.type === "JUP_STAKE"
     );
@@ -270,12 +264,8 @@ export async function GET(request: NextRequest) {
     const rawProtocolPositions = dedupeProtocolPositions([
       ...jupiterPositionsWithoutStakeFallback,
       ...jupiterStakePositions,
-      ...allKaminoPositions,
     ]);
-    const protocolPositions = filterRedundantProtocolPositions(
-      tokensWithMetadata,
-      rawProtocolPositions
-    );
+    const protocolPositions = filterRedundantProtocolPositions(tokensWithMetadata, rawProtocolPositions);
     const mergedTokens = [
       ...tokensWithMetadata,
       ...stakePositions.tokens,
@@ -296,7 +286,7 @@ export async function GET(request: NextRequest) {
       tokens: mergedTokens,
       tokenCount: mergedTokens.length,
       stakedSolBalance: stakePositions.totalStakedSol,
-      kaminoPositionCount: allKaminoPositions.length,
+      kaminoPositionCount: 0,
       jupiterPositionCount: jupiterPortfolioPositions.length,
       jupiterHoldingTokenCount: jupiterHoldingTokens.length,
       protocolPositionCount: protocolPositions.length,
@@ -766,125 +756,6 @@ function deriveJupiterPositionSymbol(value: string): string {
   return chunks.length > 0 ? chunks.join("-").slice(0, 20) : "JUP-POS";
 }
 
-async function fetchKaminoPositions(address: string): Promise<TokenInfo[]> {
-  const directEndpoints = [
-    `${KAMINO_API_BASE}/users/${address}/obligations`,
-    `${KAMINO_API_BASE}/v2/users/${address}/obligations`,
-    `${KAMINO_API_BASE}/obligations/users/${address}`,
-    `${KAMINO_API_BASE}/users/${address}/obligations?env=mainnet-beta`,
-    `${KAMINO_API_BASE}/obligations/users/${address}?env=mainnet-beta`,
-    `${KAMINO_API_BASE}/v2/users/${address}/obligations?env=mainnet-beta`,
-  ];
-
-  for (const endpoint of directEndpoints) {
-    const payload = await fetchJsonIfOk(endpoint);
-    if (!payload) {
-      continue;
-    }
-
-    const parsed = extractKaminoObligationEntries(payload)
-      .map((entry) => mapKaminoObligation(entry))
-      .filter((entry): entry is TokenInfo => entry !== null);
-
-    if (parsed.length > 0) {
-      return dedupeProtocolPositions(parsed);
-    }
-  }
-
-  // Fallback for users where obligations are only exposed by market-specific endpoints.
-  const marketIds = await fetchKaminoMarketIds();
-  if (marketIds.length === 0) {
-    return [];
-  }
-
-  const scannedMarketIds = marketIds;
-  const marketBatchSize = 8;
-  const aggregatedPositions: TokenInfo[] = [];
-
-  for (let i = 0; i < scannedMarketIds.length; i += marketBatchSize) {
-    const marketBatch = scannedMarketIds.slice(i, i + marketBatchSize);
-    const batchResults = await Promise.all(
-      marketBatch.map(async (marketId) => {
-        const marketEndpoints = [
-          `${KAMINO_API_BASE}/kamino-market/${marketId}/users/${address}/obligations?env=mainnet-beta`,
-          `${KAMINO_API_BASE}/v2/kamino-market/${marketId}/users/${address}/obligations?env=mainnet-beta`,
-        ];
-
-        for (const endpoint of marketEndpoints) {
-          const payload = await fetchJsonIfOk(endpoint);
-          if (!payload) {
-            continue;
-          }
-
-          const parsed = extractKaminoObligationEntries(payload)
-            .map((entry) => mapKaminoObligation(entry, marketId))
-            .filter((entry): entry is TokenInfo => entry !== null);
-          if (parsed.length > 0) {
-            return parsed;
-          }
-        }
-
-        return [] as TokenInfo[];
-      })
-    );
-
-    aggregatedPositions.push(...batchResults.flat());
-  }
-
-  return dedupeProtocolPositions(aggregatedPositions);
-}
-
-async function fetchKaminoVaultPositions(address: string): Promise<TokenInfo[]> {
-  const endpoints = [
-    `${KAMINO_API_BASE}/kvaults/users/${address}/positions`,
-    `${KAMINO_API_BASE}/v2/kvaults/users/${address}/positions`,
-    `${KAMINO_API_BASE}/users/${address}/vault-positions`,
-    `${KAMINO_API_BASE}/kvaults/users/${address}/positions?env=mainnet-beta`,
-    `${KAMINO_API_BASE}/users/${address}/vault-positions?env=mainnet-beta`,
-    `${KAMINO_API_BASE}/v2/kvaults/users/${address}/positions?env=mainnet-beta`,
-  ];
-
-  for (const endpoint of endpoints) {
-    const payload = await fetchJsonIfOk(endpoint);
-    if (!payload) {
-      continue;
-    }
-
-    const parsed = extractKaminoVaultEntries(payload)
-      .map((entry) => mapKaminoVaultPosition(entry))
-      .filter((entry): entry is TokenInfo => entry !== null);
-
-    if (parsed.length > 0) {
-      return dedupeProtocolPositions(parsed);
-    }
-  }
-
-  return [];
-}
-
-async function fetchKaminoMarketIds(): Promise<string[]> {
-  const endpoints = [
-    `${KAMINO_API_BASE}/v2/kamino-market`,
-    `${KAMINO_API_BASE}/kamino-market`,
-    `${KAMINO_API_BASE}/v2/markets`,
-    `${KAMINO_API_BASE}/markets`,
-  ];
-
-  for (const endpoint of endpoints) {
-    const payload = await fetchJsonIfOk(endpoint);
-    if (!payload) {
-      continue;
-    }
-
-    const marketIds = extractKaminoMarketAddresses(payload);
-    if (marketIds.length > 0) {
-      return marketIds;
-    }
-  }
-
-  return [];
-}
-
 async function fetchJsonIfOk(
   endpoint: string,
   headers: HeadersInit = DEFAULT_HTTP_HEADERS
@@ -903,406 +774,6 @@ async function fetchJsonIfOk(
   } catch {
     return null;
   }
-}
-
-function extractKaminoObligationEntries(payload: any): any[] {
-  const candidates = collectNestedObjects(payload);
-  const results: any[] = [];
-  const seen = new Set<string>();
-
-  for (const candidate of candidates) {
-    if (!candidate || Array.isArray(candidate) || typeof candidate !== "object") {
-      continue;
-    }
-
-    const obligation = candidate?.obligation && typeof candidate.obligation === "object"
-      ? candidate.obligation
-      : candidate;
-
-    const depositUsd = firstFiniteNumber([
-      obligation?.refreshedStats?.userTotalDeposit,
-      obligation?.userTotalDeposit,
-      obligation?.depositUsd,
-      obligation?.totalDepositValueUsd,
-      obligation?.totalDepositsUsd,
-    ]);
-    const borrowUsd = firstFiniteNumber([
-      obligation?.refreshedStats?.userTotalBorrow,
-      obligation?.userTotalBorrow,
-      obligation?.borrowUsd,
-      obligation?.totalBorrowValueUsd,
-      obligation?.totalBorrowsUsd,
-    ]);
-    const hasObligationAddress = isSolanaAddressLike(
-      obligation?.obligationAddress ??
-        obligation?.obligation ??
-        obligation?.address ??
-        obligation?.pubkey
-    );
-
-    if (depositUsd <= 0 && borrowUsd <= 0 && !hasObligationAddress) {
-      continue;
-    }
-
-    const key = String(
-      obligation?.obligationAddress ??
-        obligation?.obligation ??
-        obligation?.address ??
-        obligation?.pubkey ??
-        `${depositUsd}:${borrowUsd}`
-    );
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    results.push(obligation);
-  }
-
-  return results;
-}
-
-function extractKaminoVaultEntries(payload: any): any[] {
-  const candidates = collectNestedObjects(payload);
-  const results: any[] = [];
-  const seen = new Set<string>();
-
-  for (const candidate of candidates) {
-    if (!candidate || Array.isArray(candidate) || typeof candidate !== "object") {
-      continue;
-    }
-
-    const entry = candidate?.position && typeof candidate.position === "object"
-      ? candidate.position
-      : candidate;
-
-    const usdValue = firstFiniteNumber([
-      entry?.usdValue,
-      entry?.valueUsd,
-      entry?.positionUsdValue,
-      entry?.totalValueUsd,
-      entry?.currentValueUsd,
-      entry?.balanceUsd,
-      entry?.stats?.usdValue,
-    ]);
-    const shareBalance = firstFiniteNumber([
-      entry?.shares,
-      entry?.shareBalance,
-      entry?.balance,
-      entry?.amount,
-      entry?.positionSize,
-      entry?.stakedShares,
-      entry?.unstakedShares,
-      entry?.totalShares,
-      entry?.underlyingBalance,
-      entry?.underlyingAmount,
-    ]);
-    const hasVaultId = isSolanaAddressLike(
-      entry?.vaultAddress ?? entry?.vault ?? entry?.vaultPubkey ?? entry?.address
-    );
-    const hasVaultHints = Boolean(
-      entry?.vaultAddress ||
-      entry?.vault ||
-      entry?.vaultPubkey ||
-      entry?.vaultSymbol ||
-      entry?.symbol ||
-      entry?.address ||
-      entry?.vaultName
-    );
-
-    if (!hasVaultHints || (usdValue <= 0 && shareBalance <= 0 && !hasVaultId)) {
-      continue;
-    }
-
-    const key = String(
-      entry?.vaultAddress ??
-        entry?.vault ??
-        entry?.vaultPubkey ??
-        `${entry?.symbol || "vault"}:${shareBalance}:${usdValue}`
-    );
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    results.push(entry);
-  }
-
-  return results;
-}
-
-function mapKaminoObligation(obligation: any, marketFallback?: string): TokenInfo | null {
-  const depositUsd = normalizeKaminoUsd(firstFiniteNumber([
-    obligation?.refreshedStats?.userTotalDeposit,
-    obligation?.userTotalDeposit,
-    obligation?.depositUsd,
-    obligation?.totalDepositValueUsd,
-    obligation?.totalDepositsUsd,
-    obligation?.state?.depositedValueSf,
-  ]));
-  const borrowUsd = normalizeKaminoUsd(firstFiniteNumber([
-    obligation?.refreshedStats?.userTotalBorrow,
-    obligation?.userTotalBorrow,
-    obligation?.borrowUsd,
-    obligation?.totalBorrowValueUsd,
-    obligation?.totalBorrowsUsd,
-    obligation?.state?.borrowFactorAdjustedDebtValueSf,
-    obligation?.state?.borrowedAssetsMarketValueSf,
-  ]));
-  const netValueRaw = firstFiniteSignedNumber([
-    obligation?.refreshedStats?.netAccountValue,
-    obligation?.netAccountValue,
-    obligation?.netValueUsd,
-  ]);
-  const netValueUsd = netValueRaw ?? depositUsd - borrowUsd;
-
-  if (depositUsd <= 0 && borrowUsd <= 0 && netValueUsd <= 0) {
-    return null;
-  }
-
-  const obligationAddress = String(
-    obligation?.obligationAddress ||
-      obligation?.obligation ||
-      obligation?.address ||
-      obligation?.pubkey ||
-      ""
-  );
-  const tag = String(
-    obligation?.humanTag ||
-      obligation?.tag ||
-      obligation?.obligationTag ||
-      ""
-  ).trim();
-  const tagLower = tag.toLowerCase();
-  const isLeverageLike =
-    tagLower.includes("multiply") || tagLower.includes("leverage");
-  const marketAddress = String(
-    obligation?.marketAddress ||
-      obligation?.market ||
-      obligation?.marketPubkey ||
-      obligation?.state?.lendingMarket ||
-      marketFallback ||
-      ""
-  );
-  const marketName = String(
-    obligation?.marketName ||
-      obligation?.marketLabel ||
-      obligation?.marketSymbol ||
-      obligation?.state?.elevationGroup ||
-      ""
-  ).trim();
-  const effectiveValueUsd = netValueUsd > 0 ? netValueUsd : depositUsd;
-
-  return {
-    symbol: "KAMINO",
-    name: marketName
-      ? `${isLeverageLike ? "Kamino Leverage" : "Kamino Lend"} (${marketName.slice(0, 24)})`
-      : isLeverageLike
-        ? "Kamino Leverage Position"
-        : "Kamino Lend Position",
-    balance: effectiveValueUsd,
-    decimals: 2,
-    rawAmount: String(effectiveValueUsd),
-    chain: "solana",
-    type: isLeverageLike ? "KAMINO_LEVERAGE" : "KAMINO_LEND",
-    source: "kamino-api",
-    positionType: "protocol",
-    explorerUrl: obligationAddress
-      ? `${SOLSCAN_BASE_URL}/account/${obligationAddress}`
-      : "https://app.kamino.finance/lend",
-    priceUsd: 1,
-    valueUsd: effectiveValueUsd,
-    borrowUsd,
-    netValueUsd,
-    leverage: firstFiniteNumber([
-      obligation?.refreshedStats?.leverage,
-      obligation?.leverage,
-      obligation?.state?.leverage,
-    ]),
-    healthFactor: firstFiniteNumber([
-      obligation?.refreshedStats?.liquidationLtv,
-      obligation?.liquidationLtv,
-      obligation?.state?.liquidationLtv,
-    ]),
-    tag: tag || undefined,
-    market: marketAddress,
-    obligationAddress,
-  };
-}
-
-function mapKaminoVaultPosition(entry: any): TokenInfo | null {
-  const usdValue = normalizeKaminoUsd(firstFiniteNumber([
-    entry?.usdValue,
-    entry?.valueUsd,
-    entry?.positionUsdValue,
-    entry?.totalValueUsd,
-    entry?.currentValueUsd,
-    entry?.balanceUsd,
-    entry?.stats?.usdValue,
-    entry?.totalAssetsUsd,
-    entry?.depositedValueUsd,
-    entry?.equityUsd,
-  ]));
-
-  const shareBalance = firstFiniteNumber([
-    entry?.shares,
-    entry?.shareBalance,
-    entry?.balance,
-    entry?.amount,
-    entry?.positionSize,
-    entry?.stakedShares,
-    entry?.unstakedShares,
-    entry?.totalShares,
-    entry?.underlyingBalance,
-    entry?.underlyingAmount,
-  ]);
-  const sharePriceUsd = normalizeKaminoUsd(firstFiniteNumber([
-    entry?.sharePriceUsd,
-    entry?.priceUsd,
-    entry?.vaultSharePriceUsd,
-    entry?.vaultSharePrice,
-  ]));
-
-  const computedValueUsd =
-    usdValue > 0
-      ? usdValue
-      : shareBalance > 0 && sharePriceUsd > 0
-        ? shareBalance * sharePriceUsd
-        : 0;
-  const effectiveBalance = shareBalance > 0 ? shareBalance : computedValueUsd;
-  if (!Number.isFinite(effectiveBalance) || effectiveBalance <= 0) {
-    return null;
-  }
-
-  const symbol = String(
-    entry?.symbol ||
-      entry?.vaultSymbol ||
-      entry?.tokenSymbol ||
-      entry?.token?.symbol ||
-      entry?.assetSymbol ||
-      "KVAULT"
-  ).slice(0, 20);
-  const name = String(
-    entry?.vaultName ||
-      entry?.name ||
-      entry?.vault?.name ||
-      "Kamino Vault Position"
-  ).slice(0, 60);
-
-  const vaultAddress = String(
-    entry?.vaultAddress || entry?.vault || entry?.vaultPubkey || entry?.address || ""
-  );
-  const mint = String(
-    entry?.mint ||
-      entry?.vaultMint ||
-      entry?.shareMint ||
-      entry?.tokenMint ||
-      entry?.receiptMint ||
-      entry?.sharesMint ||
-      ""
-  ).trim();
-  const tokenAccount = String(
-    entry?.account || entry?.tokenAccount || entry?.userTokenAccount || ""
-  ).trim();
-  const derivedPriceUsd =
-    sharePriceUsd > 0
-      ? sharePriceUsd
-      : computedValueUsd > 0 && shareBalance > 0
-        ? computedValueUsd / shareBalance
-        : undefined;
-  const decimals = Number(entry?.decimals);
-
-  return {
-    mint: isSolanaAddressLike(mint) ? mint : undefined,
-    tokenAccount: isSolanaAddressLike(tokenAccount) ? tokenAccount : undefined,
-    symbol,
-    name,
-    balance: effectiveBalance,
-    decimals: Number.isFinite(decimals) ? decimals : 9,
-    rawAmount: String(effectiveBalance),
-    chain: "solana",
-    type: "KAMINO_VAULT",
-    source: "kamino-api",
-    positionType: "protocol",
-    explorerUrl: vaultAddress
-      ? `${SOLSCAN_BASE_URL}/account/${vaultAddress}`
-      : "https://app.kamino.finance/earn",
-    priceUsd: derivedPriceUsd,
-    valueUsd: computedValueUsd > 0 ? computedValueUsd : undefined,
-    vaultAddress,
-  };
-}
-
-function collectNestedObjects(root: any, maxNodes: number = 4000): any[] {
-  const queue: any[] = [root];
-  const seen = new Set<any>();
-  const collected: any[] = [];
-
-  while (queue.length > 0 && collected.length < maxNodes) {
-    const current = queue.shift();
-    if (!current || typeof current !== "object") {
-      continue;
-    }
-
-    if (seen.has(current)) {
-      continue;
-    }
-
-    seen.add(current);
-    collected.push(current);
-
-    if (Array.isArray(current)) {
-      queue.push(...current);
-    } else {
-      queue.push(...Object.values(current));
-    }
-  }
-
-  return collected;
-}
-
-function extractKaminoMarketAddresses(payload: any): string[] {
-  const objects = collectNestedObjects(payload);
-  const marketSet = new Set<string>();
-
-  for (const item of objects) {
-    if (!item || Array.isArray(item) || typeof item !== "object") {
-      continue;
-    }
-
-    const marketCandidates = [
-      item?.marketPubkey,
-      item?.marketAddress,
-      item?.market,
-      item?.marketId,
-      item?.lendingMarket,
-    ];
-
-    for (const candidate of marketCandidates) {
-      if (isSolanaAddressLike(candidate)) {
-        marketSet.add(String(candidate));
-      }
-    }
-
-    const hasMarketHint =
-      Object.keys(item).some((key) => key.toLowerCase().includes("market")) ||
-      String(item?.type || item?.kind || "")
-        .toLowerCase()
-        .includes("market");
-
-    if (!hasMarketHint) {
-      continue;
-    }
-
-    const genericCandidates = [item?.pubkey, item?.address, item?.id];
-    for (const candidate of genericCandidates) {
-      if (isSolanaAddressLike(candidate)) {
-        marketSet.add(String(candidate));
-      }
-    }
-  }
-
-  return Array.from(marketSet);
 }
 
 function isSolanaAddressLike(value: unknown): boolean {
@@ -1436,9 +907,6 @@ function dedupeProtocolPositions(positions: TokenInfo[]): TokenInfo[] {
       primaryFingerprint = `vault:${vaultAddress}`;
     } else if (market && mint) {
       primaryFingerprint = `market-mint:${market}|${mint}`;
-    } else if (isKaminoObligationType(position.type) && market) {
-      // Kamino can emit the same obligation with different labels (lend/leverage).
-      primaryFingerprint = `kamino-market:${market}|${normalizeAmountForKey(position.valueUsd ?? position.balance)}`;
     }
 
     const hasPrimaryId = Boolean(primaryFingerprint);
@@ -1450,40 +918,44 @@ function dedupeProtocolPositions(positions: TokenInfo[]): TokenInfo[] {
     ].join("|");
     const key = hasPrimaryId ? primaryFingerprint : fallbackFingerprint;
     const existing = byKey.get(key);
-    const candidateValue = position.valueUsd ?? position.balance;
-    const existingValue = existing?.valueUsd ?? existing?.balance ?? 0;
 
     if (!existing) {
       byKey.set(key, position);
       continue;
     }
 
-    const existingScore = scoreProtocolPosition(existing);
-    const candidateScore = scoreProtocolPosition(position);
-    const preferred =
-      candidateScore > existingScore ||
-      (candidateScore === existingScore && candidateValue > existingValue)
-        ? position
-        : existing;
-    const fallback = preferred === position ? existing : position;
-
-    byKey.set(key, {
-      ...fallback,
-      ...preferred,
-      valueUsd: Math.max(existing.valueUsd || 0, position.valueUsd || 0) || preferred.valueUsd,
-      priceUsd: preferred.priceUsd || fallback.priceUsd,
-      symbol: preferred.symbol || fallback.symbol,
-      name: preferred.name || fallback.name,
-      mint: preferred.mint || fallback.mint,
-      market: preferred.market || fallback.market,
-      obligationAddress: preferred.obligationAddress || fallback.obligationAddress,
-      vaultAddress: preferred.vaultAddress || fallback.vaultAddress,
-    });
+    byKey.set(key, mergeProtocolPositionEntries(existing, position));
   }
 
   return Array.from(byKey.values()).sort(
     (a, b) => (b.valueUsd ?? b.balance) - (a.valueUsd ?? a.balance)
   );
+}
+
+function mergeProtocolPositionEntries(existing: TokenInfo, candidate: TokenInfo): TokenInfo {
+  const candidateValue = candidate.valueUsd ?? candidate.balance;
+  const existingValue = existing?.valueUsd ?? existing?.balance ?? 0;
+  const existingScore = scoreProtocolPosition(existing);
+  const candidateScore = scoreProtocolPosition(candidate);
+  const preferred =
+    candidateScore > existingScore ||
+    (candidateScore === existingScore && candidateValue > existingValue)
+      ? candidate
+      : existing;
+  const fallback = preferred === candidate ? existing : candidate;
+
+  return {
+    ...fallback,
+    ...preferred,
+    valueUsd: Math.max(existing.valueUsd || 0, candidate.valueUsd || 0) || preferred.valueUsd,
+    priceUsd: preferred.priceUsd || fallback.priceUsd,
+    symbol: preferred.symbol || fallback.symbol,
+    name: preferred.name || fallback.name,
+    mint: preferred.mint || fallback.mint,
+    market: preferred.market || fallback.market,
+    obligationAddress: preferred.obligationAddress || fallback.obligationAddress,
+    vaultAddress: preferred.vaultAddress || fallback.vaultAddress,
+  };
 }
 
 function scoreProtocolPosition(position: TokenInfo): number {
@@ -1501,14 +973,10 @@ function scoreProtocolPosition(position: TokenInfo): number {
   if (position.mint) {
     score += 2;
   }
-  if (position.symbol && position.symbol !== "KVAULT" && position.symbol !== "KAMINO") {
+  if (position.symbol && position.symbol !== "KVAULT") {
     score += 1;
   }
-  if (
-    position.name &&
-    !position.name.toLowerCase().includes("position") &&
-    !position.name.toLowerCase().includes("kamino")
-  ) {
+  if (position.name && !position.name.toLowerCase().includes("position")) {
     score += 1;
   }
 
@@ -1519,76 +987,8 @@ function filterRedundantProtocolPositions(
   baseTokens: TokenInfo[],
   protocolPositions: TokenInfo[]
 ): TokenInfo[] {
-  const tokenMints = new Set(
-    baseTokens
-      .map((token) => token.mint)
-      .filter((mint): mint is string => Boolean(mint))
-  );
-  const tokenAccounts = new Set(
-    baseTokens
-      .map((token) => token.tokenAccount)
-      .filter((account): account is string => Boolean(account))
-  );
-
-  return protocolPositions.filter((position) => {
-    if (position.type === "KAMINO_VAULT") {
-      const positionMint = String(position.mint || "").trim();
-      const positionAccount = String(position.tokenAccount || "").trim();
-
-      if (positionMint && tokenMints.has(positionMint)) {
-        return false;
-      }
-
-      if (positionAccount && tokenAccounts.has(positionAccount)) {
-        return false;
-      }
-
-      const hasNearDuplicateToken = baseTokens.some((token) =>
-        areNearEqual(token.balance, position.balance) &&
-        isLikelyVaultTokenSymbol(token.symbol) &&
-        isLikelyVaultTokenSymbol(position.symbol)
-      );
-      if (hasNearDuplicateToken) {
-        return false;
-      }
-
-      return true;
-    }
-
-    return true;
-  });
-}
-
-function isKaminoObligationType(type: unknown): boolean {
-  return type === "KAMINO_LEND" || type === "KAMINO_LEVERAGE";
-}
-
-function normalizeAmountForKey(value: unknown): string {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return "0";
-  }
-
-  return (Math.round(parsed * 100) / 100).toFixed(2);
-}
-
-function areNearEqual(left: number, right: number): boolean {
-  if (!Number.isFinite(left) || !Number.isFinite(right)) {
-    return false;
-  }
-
-  const delta = Math.abs(left - right);
-  const scale = Math.max(1, Math.abs(left), Math.abs(right));
-  return delta / scale < 0.000001;
-}
-
-function isLikelyVaultTokenSymbol(symbol: unknown): boolean {
-  const normalized = String(symbol || "").trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-
-  return normalized === "kvault" || normalized.startsWith("kv-") || normalized.startsWith("kv");
+  void baseTokens;
+  return protocolPositions;
 }
 
 function firstFiniteNumber(values: any[]): number {
@@ -1641,34 +1041,6 @@ function parseRawTokenAmount(rawAmount: string, decimals: number): number {
   }
 
   return parsedRaw / Math.pow(10, decimals);
-}
-
-function normalizeKaminoUsd(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) {
-    return 0;
-  }
-
-  // Kamino occasionally returns fixed-point "Sf" values (~1e18 scale).
-  if (value > 1e12) {
-    return value / 1e18;
-  }
-
-  return value;
-}
-
-function firstFiniteSignedNumber(values: any[]): number | null {
-  for (const value of values) {
-    if (value === null || value === undefined || value === "") {
-      continue;
-    }
-
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return null;
 }
 
 async function fetchJupiterStakePositions(address: string): Promise<TokenInfo[]> {
