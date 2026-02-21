@@ -15,55 +15,34 @@ export function Logo({ className = "", size = 24 }: LogoProps) {
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
-      {/* Wallet body */}
-      <rect
-        x="3"
-        y="7"
-        width="26"
-        height="20"
-        rx="3"
-        className="fill-primary/15"
+      <path
+        d="M16 4L25 7.5V13.5C25 19.1 21.5 24.3 16 27C10.5 24.3 7 19.1 7 13.5V7.5L16 4Z"
+        className="fill-primary/12"
       />
-      <rect
-        x="3"
-        y="7"
-        width="26"
-        height="20"
-        rx="3"
+      <path
+        d="M16 4L25 7.5V13.5C25 19.1 21.5 24.3 16 27C10.5 24.3 7 19.1 7 13.5V7.5L16 4Z"
         className="stroke-primary"
-        strokeWidth="2"
         strokeLinejoin="round"
-      />
-      {/* Coin/symbol inside */}
-      <circle
-        cx="16"
-        cy="17"
-        r="4"
-        className="stroke-primary"
         strokeWidth="2"
       />
       <path
-        d="M16 15V17L17.5 18.5"
+        d="M11 18.5L14.5 15L17 17.5L21.5 12.5"
         className="stroke-primary"
-        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-      {/* Wallet clasp */}
-      <rect
-        x="22"
-        y="14"
-        width="5"
-        height="6"
-        rx="1.5"
-        className="stroke-primary"
         strokeWidth="2"
       />
-      <circle
-        cx="24.5"
-        cy="17"
-        r="1"
-        className="fill-primary"
+      <path
+        d="M21.5 12.5H19.2"
+        className="stroke-primary"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+      <path
+        d="M21.5 12.5V14.8"
+        className="stroke-primary"
+        strokeLinecap="round"
+        strokeWidth="2"
       />
     </svg>
   );
@@ -79,38 +58,33 @@ export function LogoIcon({ className = "", size = 32 }: LogoProps) {
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
-      <rect
-        x="4"
-        y="8"
-        width="24"
-        height="18"
-        rx="2.5"
+      <path
+        d="M16 4L25 7.5V13.5C25 19.1 21.5 24.3 16 27C10.5 24.3 7 19.1 7 13.5V7.5L16 4Z"
         className="fill-primary/12"
       />
-      <rect
-        x="4"
-        y="8"
-        width="24"
-        height="18"
-        rx="2.5"
-        className="stroke-primary"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-      />
-      <circle
-        cx="16"
-        cy="17"
-        r="3.5"
+      <path
+        d="M16 4L25 7.5V13.5C25 19.1 21.5 24.3 16 27C10.5 24.3 7 19.1 7 13.5V7.5L16 4Z"
         className="stroke-primary"
         strokeWidth="2"
+        strokeLinejoin="round"
       />
-      <rect
-        x="21"
-        y="14"
-        width="5"
-        height="6"
-        rx="1.5"
+      <path
+        d="M11 18.5L14.5 15L17 17.5L21.5 12.5"
         className="stroke-primary"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <path
+        d="M21.5 12.5H19.2"
+        className="stroke-primary"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+      <path
+        d="M21.5 12.5V14.8"
+        className="stroke-primary"
+        strokeLinecap="round"
         strokeWidth="2"
       />
     </svg>
