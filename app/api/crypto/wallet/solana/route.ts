@@ -1425,6 +1425,9 @@ function dedupeProtocolPositions(positions: TokenInfo[]): TokenInfo[] {
       primaryFingerprint = `vault:${vaultAddress}`;
     } else if (market && mint) {
       primaryFingerprint = `market-mint:${market}|${mint}`;
+    } else if (isKaminoObligationType(position.type) && market) {
+      // Kamino can emit the same obligation with different labels (lend/leverage).
+      primaryFingerprint = `kamino-market:${market}|${normalizeAmountForKey(position.valueUsd ?? position.balance)}`;
     }
 
     const hasPrimaryId = Boolean(primaryFingerprint);
@@ -1510,19 +1513,71 @@ function filterRedundantProtocolPositions(
       .map((token) => token.mint)
       .filter((mint): mint is string => Boolean(mint))
   );
+  const tokenAccounts = new Set(
+    baseTokens
+      .map((token) => token.tokenAccount)
+      .filter((account): account is string => Boolean(account))
+  );
 
   return protocolPositions.filter((position) => {
-    if (position.type !== "KAMINO_VAULT") {
+    if (position.type === "KAMINO_VAULT") {
+      const positionMint = String(position.mint || "").trim();
+      const positionAccount = String(position.tokenAccount || "").trim();
+
+      if (positionMint && tokenMints.has(positionMint)) {
+        return false;
+      }
+
+      if (positionAccount && tokenAccounts.has(positionAccount)) {
+        return false;
+      }
+
+      const hasNearDuplicateToken = baseTokens.some((token) =>
+        areNearEqual(token.balance, position.balance) &&
+        isLikelyVaultTokenSymbol(token.symbol) &&
+        isLikelyVaultTokenSymbol(position.symbol)
+      );
+      if (hasNearDuplicateToken) {
+        return false;
+      }
+
       return true;
     }
 
-    if (!position.mint || !tokenMints.has(position.mint)) {
-      return true;
-    }
-
-    // If the vault share token is already in wallet holdings, avoid duplicate row.
-    return false;
+    return true;
   });
+}
+
+function isKaminoObligationType(type: unknown): boolean {
+  return type === "KAMINO_LEND" || type === "KAMINO_LEVERAGE";
+}
+
+function normalizeAmountForKey(value: unknown): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return "0";
+  }
+
+  return (Math.round(parsed * 100) / 100).toFixed(2);
+}
+
+function areNearEqual(left: number, right: number): boolean {
+  if (!Number.isFinite(left) || !Number.isFinite(right)) {
+    return false;
+  }
+
+  const delta = Math.abs(left - right);
+  const scale = Math.max(1, Math.abs(left), Math.abs(right));
+  return delta / scale < 0.000001;
+}
+
+function isLikelyVaultTokenSymbol(symbol: unknown): boolean {
+  const normalized = String(symbol || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized === "kvault" || normalized.startsWith("kv-") || normalized.startsWith("kv");
 }
 
 function firstFiniteNumber(values: any[]): number {
