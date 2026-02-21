@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildRateLimitResponse, checkRateLimit } from "@/lib/rateLimit";
 
 // CoinGecko API (free tier, no API key required)
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
+const MAX_SYMBOLS = 80;
+const MAX_MINTS = 80;
+const PRICES_GET_RATE_LIMIT = { windowMs: 60_000, maxRequests: 60 } as const;
+const PRICES_POST_RATE_LIMIT = { windowMs: 60_000, maxRequests: 40 } as const;
 
 // Token ID mappings (CoinGecko uses specific IDs)
 const TOKEN_ID_MAP: Record<string, string> = {
@@ -45,6 +50,15 @@ const TOKEN_ID_MAP: Record<string, string> = {
 };
 
 export async function GET(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    request,
+    "api:crypto:prices:get",
+    PRICES_GET_RATE_LIMIT
+  );
+  if (!rateLimit.allowed) {
+    return buildRateLimitResponse(rateLimit, "Rate limit exceeded for price lookups");
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const symbols = searchParams.get("symbols");
   const mints = searchParams.get("mints"); // For Solana
@@ -58,15 +72,43 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const symbolList = symbols
+      ? symbols.split(",").map((value) => value.trim()).filter(Boolean)
+      : [];
+    const mintList = mints
+      ? mints.split(",").map((value) => value.trim()).filter(Boolean)
+      : [];
+
+    if (symbolList.length > MAX_SYMBOLS) {
+      return NextResponse.json(
+        { error: `Too many symbols requested. Maximum allowed is ${MAX_SYMBOLS}.` },
+        { status: 400 }
+      );
+    }
+
+    if (mintList.length > MAX_MINTS) {
+      return NextResponse.json(
+        { error: `Too many mints requested. Maximum allowed is ${MAX_MINTS}.` },
+        { status: 400 }
+      );
+    }
+
+    if (chain.length > 40) {
+      return NextResponse.json(
+        { error: "Invalid chain parameter" },
+        { status: 400 }
+      );
+    }
+
     if (chain === "solana" && mints) {
       // For Solana, we'd ideally use Jupiter API
       // For now, return a mock structure
-      return await fetchSolanaPrices(mints.split(","));
+      return await fetchSolanaPrices(mintList);
     }
 
     // EVM tokens - use CoinGecko
     if (symbols) {
-      return await fetchEVMPrices(symbols.split(","));
+      return await fetchEVMPrices(symbolList);
     }
 
     return NextResponse.json({ prices: {} });
@@ -188,6 +230,15 @@ async function fetchSolanaPrices(mints: string[]) {
 
 // Fetch single token price by contract address (using DexScreener as fallback)
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    request,
+    "api:crypto:prices:post",
+    PRICES_POST_RATE_LIMIT
+  );
+  if (!rateLimit.allowed) {
+    return buildRateLimitResponse(rateLimit, "Rate limit exceeded for token price lookups");
+  }
+
   try {
     const body = await request.json();
     const { chainId, tokenAddress } = body;
@@ -195,6 +246,18 @@ export async function POST(request: NextRequest) {
     if (!chainId || !tokenAddress) {
       return NextResponse.json(
         { error: "chainId and tokenAddress are required" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      typeof chainId !== "string" ||
+      chainId.length > 40 ||
+      typeof tokenAddress !== "string" ||
+      tokenAddress.length > 128
+    ) {
+      return NextResponse.json(
+        { error: "Invalid chainId or tokenAddress format" },
         { status: 400 }
       );
     }

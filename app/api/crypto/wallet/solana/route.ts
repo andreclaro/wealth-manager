@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { Metaplex } from "@metaplex-foundation/js";
+import { buildRateLimitResponse, checkRateLimit } from "@/lib/rateLimit";
 
 const SOLANA_RPC =
   process.env.SOLANA_RPC_URL?.trim() || "https://solana-rpc.publicnode.com";
@@ -9,6 +10,7 @@ const KAMINO_API_BASE = "https://api.kamino.finance";
 const JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
 const JUPITER_ULTRA_API_BASE = "https://ultra-api.jup.ag";
 const SOLANA_ADDRESS_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const SOLANA_WALLET_RATE_LIMIT = { windowMs: 60_000, maxRequests: 12 } as const;
 const DEFAULT_HTTP_HEADERS: HeadersInit = {
   accept: "application/json",
   "user-agent": "wealth-manager/1.0",
@@ -132,6 +134,15 @@ interface TokenMetadata {
 }
 
 export async function GET(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    request,
+    "api:crypto:wallet:solana:get",
+    SOLANA_WALLET_RATE_LIMIT
+  );
+  if (!rateLimit.allowed) {
+    return buildRateLimitResponse(rateLimit, "Rate limit exceeded for wallet scans");
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const address = searchParams.get("address");
 

@@ -10,6 +10,9 @@ import {
 } from "@/lib/bank-playground/types";
 import { unknownToErrorMessage } from "@/lib/bank-playground/http";
 import { requireAuth } from "@/lib/api";
+import { buildRateLimitResponse, checkRateLimit } from "@/lib/rateLimit";
+
+const BANK_PLAYGROUND_RATE_LIMIT = { windowMs: 60_000, maxRequests: 20 } as const;
 
 function parseOptions(raw: unknown): PlaygroundTestOptions {
   if (!raw || typeof raw !== "object") {
@@ -58,6 +61,18 @@ function sanitizeResult(result: PlaygroundTestResult): PlaygroundTestResult {
 export async function POST(request: NextRequest) {
   const { error } = await requireAuth();
   if (error) return error;
+
+  const rateLimit = checkRateLimit(
+    request,
+    "api:bank-playground:test:post",
+    BANK_PLAYGROUND_RATE_LIMIT
+  );
+  if (!rateLimit.allowed) {
+    return buildRateLimitResponse(
+      rateLimit,
+      "Rate limit exceeded for bank playground tests"
+    );
+  }
 
   let body: unknown;
 

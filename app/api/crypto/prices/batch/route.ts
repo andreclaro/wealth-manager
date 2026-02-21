@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildRateLimitResponse, checkRateLimit } from "@/lib/rateLimit";
 
 // DexScreener API - supports price by contract address
 const DEXSCREENER_API = "https://api.dexscreener.com";
@@ -7,6 +8,8 @@ const DEXSCREENER_API = "https://api.dexscreener.com";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const COINGECKO_RATE_LIMIT_BACKOFF_MS = 60_000;
 let coinGeckoBackoffUntil = 0;
+const MAX_TOKENS_PER_BATCH = 120;
+const BATCH_ROUTE_RATE_LIMIT = { windowMs: 60_000, maxRequests: 20 } as const;
 
 // Token ID mappings for CoinGecko (major tokens only)
 const TOKEN_ID_MAP: Record<string, string> = {
@@ -64,6 +67,15 @@ const CHAIN_MAP: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    request,
+    "api:crypto:prices:batch",
+    BATCH_ROUTE_RATE_LIMIT
+  );
+  if (!rateLimit.allowed) {
+    return buildRateLimitResponse(rateLimit, "Rate limit exceeded for batch prices");
+  }
+
   try {
     const body = await request.json();
     const { tokens, chain } = body;
@@ -71,6 +83,22 @@ export async function POST(request: NextRequest) {
     if (!tokens || !Array.isArray(tokens) || tokens.length === 0) {
       return NextResponse.json(
         { error: "Tokens array is required" },
+        { status: 400 }
+      );
+    }
+
+    if (tokens.length > MAX_TOKENS_PER_BATCH) {
+      return NextResponse.json(
+        {
+          error: `Too many tokens requested. Maximum allowed is ${MAX_TOKENS_PER_BATCH}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (typeof chain === "string" && chain.length > 40) {
+      return NextResponse.json(
+        { error: "Invalid chain parameter" },
         { status: 400 }
       );
     }

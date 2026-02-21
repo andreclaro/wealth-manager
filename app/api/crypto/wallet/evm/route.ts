@@ -4,6 +4,7 @@ import {
   InfoClient,
 } from "@nktkas/hyperliquid";
 import { NextRequest, NextResponse } from "next/server";
+import { buildRateLimitResponse, checkRateLimit } from "@/lib/rateLimit";
 
 const ROUTESCAN_EVM_API_BASE = "https://api.routescan.io/v2/network";
 const AVALANCHE_C_CHAIN = "avalanche-c" as const;
@@ -17,6 +18,7 @@ const AVALANCHE_PLATFORM_RPC_RETRY_DELAYS_MS = [350, 900];
 const AVALANCHE_GLACIER_API_BASE = "https://glacier-api.avax.network/v1";
 const AVALANCHE_C_CHAIN_RPC = "https://api.avax.network/ext/bc/C/rpc";
 const AVALANCHE_P_CHAIN_DECIMALS = 9;
+const EVM_WALLET_RATE_LIMIT = { windowMs: 60_000, maxRequests: 12 } as const;
 
 const BLOCKSCOUT_ENDPOINTS = {
   ethereum: ["https://eth.blockscout.com"],
@@ -139,12 +141,28 @@ interface ChainScanResult {
 }
 
 export async function GET(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    request,
+    "api:crypto:wallet:evm:get",
+    EVM_WALLET_RATE_LIMIT
+  );
+  if (!rateLimit.allowed) {
+    return buildRateLimitResponse(rateLimit, "Rate limit exceeded for wallet scans");
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const address = searchParams.get("address")?.trim();
   const explicitPAddress = normalizeAvalanchePAddress(
     searchParams.get("pAddress") || searchParams.get("avalanchePAddress")
   );
   const chainParam = (searchParams.get("chain") || "auto").toLowerCase();
+
+  if (chainParam.length > 40) {
+    return NextResponse.json(
+      { error: "Invalid chain parameter" },
+      { status: 400 }
+    );
+  }
 
   if (!address) {
     return NextResponse.json(
