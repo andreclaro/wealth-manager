@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,12 +28,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWithTotals, CURRENCY_LABELS } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { Currency } from "@prisma/client";
-import { Building2, Plus, Trash2, Wallet, ExternalLink, Pencil } from "lucide-react";
+import {
+  Building2,
+  ExternalLink,
+  LayoutGrid,
+  List,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Wallet,
+  X,
+} from "lucide-react";
 import { format } from "date-fns";
+
+type ViewMode = "grid" | "list";
+const STORAGE_KEY = "accounts-page-preferences";
 
 const ACCOUNT_TYPES = [
   "Bank",
@@ -47,8 +68,11 @@ const ACCOUNT_TYPES = [
   "Other",
 ];
 
+interface PagePreferences {
+  viewMode: ViewMode;
+}
+
 export default function AccountsPage() {
-  const router = useRouter();
   const [accounts, setAccounts] = useState<AccountWithTotals[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,6 +85,80 @@ export default function AccountsPage() {
     currency: "EUR" as Currency,
     notes: "",
   });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string>("ALL");
+  const [currencyFilter, setCurrencyFilter] = useState<string>("ALL");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const preferences = JSON.parse(saved) as PagePreferences;
+        if (preferences.viewMode === "grid" || preferences.viewMode === "list") {
+          setViewMode(preferences.viewMode);
+        }
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
+
+  const handleViewModeChange = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ viewMode: mode }));
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
+
+  const filterTypeOptions = useMemo(() => {
+    const existingTypes = accounts
+      .map((account) => account.type?.trim())
+      .filter((type): type is string => Boolean(type));
+
+    return Array.from(new Set([...ACCOUNT_TYPES, ...existingTypes])).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [accounts]);
+
+  const filteredAccounts = useMemo(() => {
+    let filtered = accounts;
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase();
+      filtered = filtered.filter((account) => {
+        return (
+          account.name.toLowerCase().includes(query) ||
+          (account.type || "").toLowerCase().includes(query) ||
+          (account.notes || "").toLowerCase().includes(query) ||
+          account.currency.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    if (typeFilter === "NONE") {
+      filtered = filtered.filter((account) => !account.type);
+    } else if (typeFilter !== "ALL") {
+      filtered = filtered.filter((account) => account.type === typeFilter);
+    }
+
+    if (currencyFilter !== "ALL") {
+      filtered = filtered.filter((account) => account.currency === currencyFilter);
+    }
+
+    return filtered;
+  }, [accounts, searchQuery, typeFilter, currencyFilter]);
+
+  const hasActiveFilters =
+    searchQuery.trim() !== "" || typeFilter !== "ALL" || currencyFilter !== "ALL";
+
+  const clearFilters = useCallback(() => {
+    setSearchQuery("");
+    setTypeFilter("ALL");
+    setCurrencyFilter("ALL");
+  }, []);
 
   const loadAccounts = async () => {
     setIsLoading(true);
@@ -269,11 +367,11 @@ export default function AccountsPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(3)].map((_, i) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => (
             <Card key={i} className="wm-surface animate-pulse">
-              <CardHeader className="h-24 bg-muted" />
-              <CardContent className="h-20 bg-muted mt-2" />
+              <CardHeader className="h-16 bg-muted" />
+              <CardContent className="h-16 bg-muted mt-1" />
             </Card>
           ))}
         </div>
@@ -292,92 +390,261 @@ export default function AccountsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accounts.map((account) => (
-            <Card key={account.id} className="wm-surface wm-soft-hover">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0 flex-1">
-                    <Link 
-                      href={`/app/assets?account=${account.id}`}
-                      className="group flex items-center gap-2"
-                    >
-                      <CardTitle className="text-lg group-hover:text-primary transition-colors truncate">
-                        {account.name}
-                      </CardTitle>
-                      <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                    </Link>
-                    {account.type && (
-                      <CardDescription>{account.type}</CardDescription>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => handleEdit(account)}
-                      title="Edit account"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      onClick={() => handleDelete(account.id)}
-                      disabled={account.assets.length > 0}
-                      title={
-                        account.assets.length > 0
-                          ? "Cannot delete account with assets"
-                          : "Delete account"
-                      }
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+        <>
+          <div className="wm-surface rounded-xl p-3 sm:p-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search accounts..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-full sm:w-[200px] bg-background">
+                  <SelectValue placeholder="Filter by type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Types</SelectItem>
+                  <SelectItem value="NONE">No Type</SelectItem>
+                  {filterTypeOptions.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={currencyFilter} onValueChange={setCurrencyFilter}>
+                <SelectTrigger className="w-full sm:w-[180px] bg-background">
+                  <SelectValue placeholder="Filter by currency" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Currencies</SelectItem>
+                  {Object.entries(CURRENCY_LABELS).map(([currency, label]) => (
+                    <SelectItem key={currency} value={currency}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-2">
+                {hasActiveFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearFilters}
+                    className="text-muted-foreground"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Clear
+                  </Button>
+                )}
+                <div className="flex items-center border rounded-md">
+                  <Button
+                    variant={viewMode === "grid" ? "secondary" : "ghost"}
+                    size="icon"
+                    onClick={() => handleViewModeChange("grid")}
+                    title="Grid view"
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant={viewMode === "list" ? "secondary" : "ghost"}
+                    size="icon"
+                    onClick={() => handleViewModeChange("list")}
+                    title="List view"
+                  >
+                    <List className="h-4 w-4" />
+                  </Button>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-muted p-2 rounded">
-                      <p className="text-xs text-muted-foreground">Total (USD)</p>
-                      <p className="font-semibold">
-                        {formatCurrency(account.totalValueUSD, "USD")}
-                      </p>
-                    </div>
-                    <div className="bg-muted p-2 rounded">
-                      <p className="text-xs text-muted-foreground">Total (EUR)</p>
-                      <p className="font-semibold">
-                        {formatCurrency(account.totalValueEUR, "EUR")}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Wallet className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">
-                      {account.assets.length} asset
-                      {account.assets.length !== 1 ? "s" : ""}
-                    </span>
-                    <span className="text-muted-foreground mx-1">•</span>
-                    <span className="text-muted-foreground">
-                      {account.currency}
-                    </span>
-                  </div>
-                  {account.notes && (
-                    <p className="text-sm text-muted-foreground">
-                      {account.notes}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Added {format(new Date(account.createdAt), "MMM d, yyyy")}
-                  </p>
-                </div>
-              </CardContent>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            Showing {filteredAccounts.length} of {accounts.length} accounts
+          </p>
+
+          {filteredAccounts.length === 0 ? (
+            <Card className="wm-surface p-8 text-center">
+              <p className="text-muted-foreground">No accounts match your filters.</p>
             </Card>
-          ))}
-        </div>
+          ) : viewMode === "grid" ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {filteredAccounts.map((account) => (
+                <Card key={account.id} className="wm-surface wm-soft-hover">
+                  <CardHeader className="pb-1 pt-4 px-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/app/assets?account=${account.id}`}
+                          className="group flex items-center gap-1.5"
+                        >
+                          <CardTitle className="text-base group-hover:text-primary transition-colors truncate">
+                            {account.name}
+                          </CardTitle>
+                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                        </Link>
+                        <CardDescription className="text-xs">
+                          {account.type || "No type"}
+                        </CardDescription>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleEdit(account)}
+                          title="Edit account"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          onClick={() => handleDelete(account.id)}
+                          disabled={account.assets.length > 0}
+                          title={
+                            account.assets.length > 0
+                              ? "Cannot delete account with assets"
+                              : "Delete account"
+                          }
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0 pb-4 px-4">
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[11px] text-muted-foreground">EUR</p>
+                          <p className="text-sm font-semibold leading-tight">
+                            {formatCurrency(account.totalValueEUR, "EUR")}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-muted-foreground">USD</p>
+                          <p className="text-sm font-semibold leading-tight">
+                            {formatCurrency(account.totalValueUSD, "USD")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Wallet className="h-3.5 w-3.5" />
+                        <span>
+                          {account.assets.length} asset
+                          {account.assets.length !== 1 ? "s" : ""}
+                        </span>
+                        <span>•</span>
+                        <span>{account.currency}</span>
+                      </div>
+                      {account.notes && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {account.notes}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground">
+                        Added {format(new Date(account.createdAt), "MMM d, yyyy")}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Card className="wm-surface overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Currency</TableHead>
+                    <TableHead className="text-right">Assets</TableHead>
+                    <TableHead className="text-right">Value (EUR)</TableHead>
+                    <TableHead className="text-right">Value (USD)</TableHead>
+                    <TableHead className="text-right">Added</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredAccounts.map((account) => (
+                    <TableRow key={account.id} className="group hover:bg-muted/50">
+                      <TableCell>
+                        <Link
+                          href={`/app/assets?account=${account.id}`}
+                          className="block hover:opacity-75 transition-opacity"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="font-medium truncate max-w-[220px]">
+                                {account.name}
+                              </p>
+                              {account.notes && (
+                                <p className="text-xs text-muted-foreground truncate max-w-[220px]">
+                                  {account.notes}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </Link>
+                      </TableCell>
+                      <TableCell>{account.type || "No type"}</TableCell>
+                      <TableCell>{account.currency}</TableCell>
+                      <TableCell className="text-right">{account.assets.length}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(account.totalValueEUR, "EUR")}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {formatCurrency(account.totalValueUSD, "USD")}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {format(new Date(account.createdAt), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                            <Link href={`/app/assets?account=${account.id}`}>
+                              <ExternalLink className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleEdit(account)}
+                            title="Edit account"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive"
+                            onClick={() => handleDelete(account.id)}
+                            disabled={account.assets.length > 0}
+                            title={
+                              account.assets.length > 0
+                                ? "Cannot delete account with assets"
+                                : "Delete account"
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </>
       )}
 
       {/* Edit Dialog */}
