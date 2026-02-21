@@ -23,6 +23,15 @@ interface ImportResult {
   error?: string;
 }
 
+const MAX_CSV_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
+const MAX_CSV_ROWS = 2000;
+const ACCEPTED_CSV_MIME_TYPES = new Set([
+  "text/csv",
+  "application/csv",
+  "text/plain",
+  "application/vnd.ms-excel",
+]);
+
 function parseCSV(csvText: string): CSVRow[] {
   const lines = csvText.trim().split("\n");
   if (lines.length < 2) return [];
@@ -97,11 +106,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
+    if (file.size <= 0) {
+      return NextResponse.json({ error: "CSV file is empty or invalid" }, { status: 400 });
+    }
+
+    if (file.size > MAX_CSV_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        {
+          error: `CSV file is too large. Maximum allowed size is ${Math.round(
+            MAX_CSV_FILE_SIZE_BYTES / (1024 * 1024)
+          )}MB.`,
+        },
+        { status: 413 }
+      );
+    }
+
+    const fileType = file.type?.toLowerCase() || "";
+    const fileName = file.name?.toLowerCase() || "";
+    const isAcceptedType =
+      !fileType ||
+      ACCEPTED_CSV_MIME_TYPES.has(fileType) ||
+      fileName.endsWith(".csv");
+    if (!isAcceptedType) {
+      return NextResponse.json(
+        { error: "Invalid file type. Please upload a CSV file." },
+        { status: 400 }
+      );
+    }
+
     const csvText = await file.text();
     const rows = parseCSV(csvText);
 
     if (rows.length === 0) {
       return NextResponse.json({ error: "CSV file is empty or invalid" }, { status: 400 });
+    }
+
+    if (rows.length > MAX_CSV_ROWS) {
+      return NextResponse.json(
+        {
+          error: `CSV contains too many rows. Maximum allowed is ${MAX_CSV_ROWS} rows.`,
+        },
+        { status: 400 }
+      );
     }
 
     const results: ImportResult[] = [];
