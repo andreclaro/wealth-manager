@@ -23,7 +23,7 @@ export interface NormalizedHolding {
   currency: string;
   assetClass: string;
   sourceType: string;
-  raw: Record<string, unknown>;
+  raw?: Record<string, unknown>;
 }
 
 export interface PlaygroundTestResult {

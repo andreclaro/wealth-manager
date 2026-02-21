@@ -9,6 +9,7 @@ import {
   PlaygroundTestResult,
 } from "@/lib/bank-playground/types";
 import { unknownToErrorMessage } from "@/lib/bank-playground/http";
+import { requireAuth } from "@/lib/api";
 
 function parseOptions(raw: unknown): PlaygroundTestOptions {
   if (!raw || typeof raw !== "object") {
@@ -47,7 +48,17 @@ function buildUnexpectedErrorResult(providerId: BankProviderId): PlaygroundTestR
   };
 }
 
+function sanitizeResult(result: PlaygroundTestResult): PlaygroundTestResult {
+  return {
+    ...result,
+    holdings: result.holdings.map(({ raw: _raw, ...holding }) => holding),
+  };
+}
+
 export async function POST(request: NextRequest) {
+  const { error } = await requireAuth();
+  if (error) return error;
+
   let body: unknown;
 
   try {
@@ -77,11 +88,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await connector.runTest(options);
-    return NextResponse.json(result);
+    return NextResponse.json(sanitizeResult(result));
   } catch (error) {
     const result = buildUnexpectedErrorResult(providerId);
     result.errors = [unknownToErrorMessage(error)];
 
-    return NextResponse.json(result, { status: 500 });
+    return NextResponse.json(sanitizeResult(result), { status: 500 });
   }
 }
