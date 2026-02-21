@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching batch prices:", error);
     return NextResponse.json(
-      { error: "Failed to fetch prices", details: (error as Error).message },
+      { error: "Failed to fetch prices" },
       { status: 500 }
     );
   }

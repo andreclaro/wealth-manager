@@ -235,7 +235,7 @@ export async function GET(request: NextRequest) {
       source: getChainSource(chain),
       status: "error",
       tokens: [],
-      error: result.reason instanceof Error ? result.reason.message : "Unknown scan error",
+      error: "scan_failed",
     };
   });
 
@@ -251,7 +251,7 @@ export async function GET(request: NextRequest) {
           chain: result.chain,
           status: result.status,
           source: result.source,
-          error: result.error,
+          error: result.status === "error" ? "scan_failed" : undefined,
         })),
       },
       { status: 502 }
@@ -317,7 +317,7 @@ export async function GET(request: NextRequest) {
         ((result.nativeBalance?.balance ?? 0) > 0 ? 1 : 0),
       nativeBalance: result.nativeBalance?.balance ?? 0,
       nativeSymbol: result.nativeBalance?.symbol,
-      error: result.error,
+      error: result.status === "error" ? "scan_failed" : undefined,
     })),
     fetchedAt: new Date().toISOString(),
   });

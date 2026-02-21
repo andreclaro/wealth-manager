@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching prices:", error);
     return NextResponse.json(
-      { error: "Failed to fetch prices", details: (error as Error).message },
+      { error: "Failed to fetch prices" },
       { status: 500 }
     );
   }
@@ -300,7 +300,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching token price:", error);
     return NextResponse.json(
-      { error: "Failed to fetch price", details: (error as Error).message },
+      { error: "Failed to fetch price" },
       { status: 500 }
     );
   }
