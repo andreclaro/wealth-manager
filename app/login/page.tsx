@@ -19,7 +19,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (status === "authenticated") {
-      router.push("/");
+      router.push("/app");
     }
   }, [status, router]);
 
@@ -53,7 +53,7 @@ export default function LoginPage() {
           <Button
             variant="outline"
             className="w-full h-12 text-base"
-            onClick={() => signIn("google", { callbackUrl: "/" })}
+            onClick={() => signIn("google", { callbackUrl: "/app" })}
           >
             <Chrome className="mr-2 h-5 w-5" />
             Continue with Google
