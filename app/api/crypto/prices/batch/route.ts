@@ -8,7 +8,9 @@ const DEXSCREENER_API = "https://api.dexscreener.com";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const COINGECKO_RATE_LIMIT_BACKOFF_MS = 60_000;
 let coinGeckoBackoffUntil = 0;
-const MAX_TOKENS_PER_BATCH = 120;
+// Wallet endpoint currently caps token discovery at 500 entries (+ native balances),
+// so allow enough headroom to price a full wallet response without dropping assets.
+const MAX_TOKENS_PER_BATCH = 600;
 const BATCH_ROUTE_RATE_LIMIT = { windowMs: 60_000, maxRequests: 20 } as const;
 
 // Token ID mappings for CoinGecko (major tokens only)
@@ -107,6 +109,7 @@ export async function POST(request: NextRequest) {
     const prices: Record<string, any> = {};
     const coinGeckoPrices = await fetchCoinGeckoPricesBySymbols(tokens);
     const jupiterPrices = await fetchJupiterPricesByMint(tokens, defaultChainId);
+    const seenIdentifiers = new Set<string>();
 
     // Process in batches of 5 (DexScreener has stricter rate limits)
     const batchSize = 5;
@@ -115,20 +118,25 @@ export async function POST(request: NextRequest) {
       
       await Promise.all(
         batch.map(async (token) => {
-          const symbol = token.symbol?.toUpperCase();
-          const address = token.contractAddress || token.mint;
+          const symbol = String(token?.symbol || "").toUpperCase();
+          const address = String(token?.contractAddress || token?.mint || "");
           const identifier = address || symbol;
 
           if (!identifier) return;
+          const tokenChain = CHAIN_MAP[token?.chain] || token?.chain || defaultChainId || "";
+          const dedupeKey = `${tokenChain}:${identifier}`;
+          if (seenIdentifiers.has(dedupeKey)) {
+            return;
+          }
+          seenIdentifiers.add(dedupeKey);
 
           // Skip tokens with obviously fake balances (airdrop spam)
-          if (token.balance > 1e30) {
+          if ((token?.balance || 0) > 1e30) {
             prices[identifier] = { spam: true, reason: "Suspicious balance" };
             return;
           }
 
           try {
-            const tokenChain = CHAIN_MAP[token.chain] || token.chain || defaultChainId;
             const dexPromise =
               address && tokenChain && isDexScreenerCompatibleAddress(address, tokenChain)
                 ? fetchDexScreenerPrice(tokenChain, address)

@@ -83,6 +83,21 @@ const CHAIN_ALIASES: Record<string, SupportedChain[]> = {
   avax: [AVALANCHE_C_CHAIN, AVALANCHE_P_CHAIN],
 };
 
+const VERIFIED_USDC_CONTRACTS: Partial<Record<EvmChain, Set<string>>> = {
+  ethereum: new Set(["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]),
+  optimism: new Set(["0x0b2c639c533813f4aa9d7837caf62653d097ff85"]),
+  base: new Set(["0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"]),
+  arbitrum: new Set([
+    "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+    "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8",
+  ]),
+  polygon: new Set(["0x3c499c542cef5e3811e1192ce70d8cc03d5c3359"]),
+  [AVALANCHE_C_CHAIN]: new Set([
+    "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
+    "0xa7d7079b0fead91f3e65f86e8915cb59c1a4c664",
+  ]),
+};
+
 const TRONSCAN_API = "https://apilist.tronscanapi.com";
 const HYPERLIQUID_EXPLORER_BASE = "https://app.hyperliquid.xyz/explorer";
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -752,16 +767,21 @@ function mapBlockscoutToken(
       item?.amount,
     decimals
   );
+  const symbol = String(
+    item?.symbol ?? item?.tokenSymbol ?? item?.TokenSymbol ?? "UNKNOWN"
+  );
 
   if (balance <= 0) {
     return null;
   }
 
+  if (!isVerifiedStablecoinContract(chain, symbol, String(contractAddress))) {
+    return null;
+  }
+
   return {
     contractAddress: String(contractAddress),
-    symbol: String(
-      item?.symbol ?? item?.tokenSymbol ?? item?.TokenSymbol ?? "UNKNOWN"
-    ),
+    symbol,
     name: String(
       item?.name ?? item?.tokenName ?? item?.TokenName ?? "Unknown Token"
     ),
@@ -795,16 +815,28 @@ function mapBlockscoutV2Token(
     tokenMeta?.decimals ?? item?.decimals,
     18
   );
+  const reputation = String(tokenMeta?.reputation || item?.reputation || "")
+    .trim()
+    .toLowerCase();
+  const symbol = String(tokenMeta?.symbol || item?.symbol || "UNKNOWN");
   const rawBalance = item?.value ?? item?.balance ?? item?.token_balance ?? "0";
   const balance = normalizeAtomicBalance(rawBalance, decimals);
+
+  if (reputation === "spam" || reputation === "scam") {
+    return null;
+  }
 
   if (balance <= 0) {
     return null;
   }
 
+  if (!isVerifiedStablecoinContract(chain, symbol, String(contractAddress))) {
+    return null;
+  }
+
   return {
     contractAddress: String(contractAddress),
-    symbol: String(tokenMeta?.symbol || item?.symbol || "UNKNOWN"),
+    symbol,
     name: String(tokenMeta?.name || item?.name || "Unknown Token"),
     decimals,
     balance,
@@ -1897,6 +1929,27 @@ function normalizeErrorMessage(error: unknown) {
   }
 
   return "Unknown error";
+}
+
+function isVerifiedStablecoinContract(
+  chain: EvmChain,
+  symbol: string,
+  contractAddress: string
+) {
+  if (normalizeSymbol(symbol) !== "USDC") {
+    return true;
+  }
+
+  const allowedContracts = VERIFIED_USDC_CONTRACTS[chain];
+  if (!allowedContracts || allowedContracts.size === 0) {
+    return true;
+  }
+
+  return allowedContracts.has(normalizeEvmTokenAddress(contractAddress));
+}
+
+function normalizeEvmTokenAddress(address: string) {
+  return String(address || "").trim().toLowerCase();
 }
 
 function mapTronToken(entry: any): WalletToken | null {
