@@ -48,6 +48,7 @@ import {
   List,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   Wallet,
@@ -86,6 +87,16 @@ export default function AccountsPage() {
     currency: "EUR" as Currency,
     notes: "",
   });
+  
+  // Wallet address state for Crypto Wallet accounts
+  const [walletAddressData, setWalletAddressData] = useState({
+    chainType: "EVM" as "EVM" | "SOLANA",
+    address: "",
+    evmChainId: "",
+    label: "",
+  });
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [isCreatingWallet, setIsCreatingWallet] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [currencyFilter, setCurrencyFilter] = useState<string>("ALL");
@@ -180,26 +191,97 @@ export default function AccountsPage() {
     loadAccounts();
   }, []);
 
+  const validateWalletAddress = (): boolean => {
+    setWalletError(null);
+    
+    if (formData.type !== "Crypto Wallet") return true;
+    
+    if (!walletAddressData.address.trim()) {
+      setWalletError("Wallet address is required for crypto wallets");
+      return false;
+    }
+    
+    const address = walletAddressData.address.trim();
+    
+    if (walletAddressData.chainType === "EVM") {
+      const isEvm = /^0x[a-fA-F0-9]{40}$/.test(address);
+      const isPChain = /^P-avax1[0-9a-z]+$/i.test(address);
+      const isPChainAlt = /^avax1[0-9a-z]+$/i.test(address);
+      
+      if (!isEvm && !isPChain && !isPChainAlt) {
+        setWalletError("Invalid EVM address (should be 0x... or P-avax1...)");
+        return false;
+      }
+      
+      if (!isPChain && !isPChainAlt && !walletAddressData.evmChainId) {
+        setWalletError("Please select a chain");
+        return false;
+      }
+    } else if (walletAddressData.chainType === "SOLANA") {
+      const isSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+      if (!isSolana) {
+        setWalletError("Invalid Solana address");
+        return false;
+      }
+    }
+    
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateWalletAddress()) return;
+    
     setIsSubmitting(true);
+    setIsCreatingWallet(formData.type === "Crypto Wallet");
 
     try {
-      const response = await fetch("/api/accounts", {
+      // 1. Create account
+      const accountResponse = await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
 
-      if (response.ok) {
-        setIsDialogOpen(false);
-        setFormData({ name: "", type: "", currency: "EUR", notes: "" });
-        loadAccounts();
+      if (!accountResponse.ok) {
+        throw new Error("Failed to create account");
       }
+
+      const account = await accountResponse.json();
+
+      // 2. If Crypto Wallet, create wallet address
+      if (formData.type === "Crypto Wallet") {
+        const address = walletAddressData.address.trim();
+        const isPChain = /^P-avax1[0-9a-z]+$/i.test(address) || /^avax1[0-9a-z]+$/i.test(address);
+        
+        const walletData = {
+          chainType: walletAddressData.chainType,
+          address: address,
+          evmChainId: isPChain ? undefined : parseInt(walletAddressData.evmChainId),
+          isPChain: isPChain,
+          label: walletAddressData.label || undefined,
+          syncEnabled: true,
+        };
+        
+        await fetch(`/api/accounts/${account.id}/wallet-addresses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(walletData),
+        });
+      }
+
+      // 3. Reset and close
+      setIsDialogOpen(false);
+      setFormData({ name: "", type: "", currency: "EUR", notes: "" });
+      setWalletAddressData({ chainType: "EVM", address: "", evmChainId: "", label: "" });
+      setWalletError(null);
+      loadAccounts();
     } catch (error) {
       console.error("Error creating account:", error);
     } finally {
       setIsSubmitting(false);
+      setIsCreatingWallet(false);
     }
   };
 
@@ -357,9 +439,109 @@ export default function AccountsPage() {
                   rows={2}
                 />
               </div>
+
+              {/* Wallet Address Section - only for Crypto Wallet */}
+              {formData.type === "Crypto Wallet" && (
+                <div className="border-t pt-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="h-4 w-4 text-muted-foreground" />
+                    <Label className="text-sm font-medium">Wallet Address</Label>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="walletChainType">Chain Type</Label>
+                    <Select
+                      value={walletAddressData.chainType}
+                      onValueChange={(value) =>
+                        setWalletAddressData((prev) => ({
+                          ...prev,
+                          chainType: value as "EVM" | "SOLANA",
+                          evmChainId: "",
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="EVM">EVM (Ethereum, Polygon, etc.)</SelectItem>
+                        <SelectItem value="SOLANA">Solana</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {walletAddressData.chainType === "EVM" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="evmChain">Chain</Label>
+                      <Select
+                        value={walletAddressData.evmChainId}
+                        onValueChange={(value) =>
+                          setWalletAddressData((prev) => ({ ...prev, evmChainId: value }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select chain" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1">Ethereum Mainnet</SelectItem>
+                          <SelectItem value="137">Polygon</SelectItem>
+                          <SelectItem value="42161">Arbitrum</SelectItem>
+                          <SelectItem value="8453">Base</SelectItem>
+                          <SelectItem value="43114">Avalanche C-Chain</SelectItem>
+                          <SelectItem value="10">Optimism</SelectItem>
+                          <SelectItem value="p-chain">Avalanche P-Chain</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="walletAddress">Address</Label>
+                    <Input
+                      id="walletAddress"
+                      value={walletAddressData.address}
+                      onChange={(e) =>
+                        setWalletAddressData((prev) => ({ ...prev, address: e.target.value }))
+                      }
+                      placeholder={
+                        walletAddressData.chainType === "EVM"
+                          ? "0x... or P-avax1..."
+                          : "Solana address"
+                      }
+                      className="font-mono text-sm"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="walletLabel">Label (Optional)</Label>
+                    <Input
+                      id="walletLabel"
+                      value={walletAddressData.label}
+                      onChange={(e) =>
+                        setWalletAddressData((prev) => ({ ...prev, label: e.target.value }))
+                      }
+                      placeholder="e.g., Main Wallet"
+                    />
+                  </div>
+
+                  {walletError && (
+                    <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
+                      {walletError}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <DialogFooter>
                 <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Creating..." : "Create Account"}
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className={`h-4 w-4 mr-1 ${isCreatingWallet ? "animate-spin" : ""}`} />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Account"
+                  )}
                 </Button>
               </DialogFooter>
             </form>
