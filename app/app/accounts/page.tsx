@@ -265,11 +265,28 @@ export default function AccountsPage() {
           syncEnabled: true,
         };
         
-        await fetch(`/api/accounts/${account.id}/wallet-addresses`, {
+        const walletResponse = await fetch(`/api/accounts/${account.id}/wallet-addresses`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(walletData),
         });
+        
+        // Auto-sync the wallet after creation
+        if (walletResponse.ok) {
+          const walletAddress = await walletResponse.json();
+          console.log(`[AccountCreate] Auto-syncing wallet ${walletAddress.id}...`);
+          
+          // Trigger sync in background (don't await to avoid blocking)
+          fetch(`/api/wallet-addresses/${walletAddress.id}/sync`, { method: "POST" })
+            .then(syncResponse => {
+              if (syncResponse.ok) {
+                console.log(`[AccountCreate] Wallet ${walletAddress.id} synced successfully`);
+              } else {
+                console.warn(`[AccountCreate] Wallet ${walletAddress.id} sync failed`);
+              }
+            })
+            .catch(err => console.error(`[AccountCreate] Sync error:`, err));
+        }
       }
 
       // 3. Reset and close
