@@ -95,6 +95,7 @@ export default function AccountsPage() {
     address: "",
     evmChainId: "",
     label: "",
+    pChainAddress: "", // Optional P-Chain address for EVM wallets
   });
   const [walletError, setWalletError] = useState<string | null>(null);
   const [isCreatingWallet, setIsCreatingWallet] = useState(false);
@@ -206,11 +207,16 @@ export default function AccountsPage() {
     
     if (walletAddressData.chainType === "EVM") {
       const isEvm = /^0x[a-fA-F0-9]{40}$/.test(address);
-      const isPChain = /^P-avax1[0-9a-z]+$/i.test(address);
-      const isPChainAlt = /^avax1[0-9a-z]+$/i.test(address);
+      const pChainAddress = walletAddressData.pChainAddress?.trim();
+      const hasPChain = pChainAddress && (pChainAddress.match(/^P-avax1[0-9a-z]+$/i) || pChainAddress.match(/^avax1[0-9a-z]+$/i));
       
-      if (!isEvm && !isPChain && !isPChainAlt) {
-        setWalletError("Invalid EVM address (should be 0x... or P-avax1...)");
+      if (!isEvm && !hasPChain) {
+        setWalletError("Please provide an EVM address (0x...) or P-Chain address (P-avax1...)");
+        return false;
+      }
+      
+      if (pChainAddress && !hasPChain) {
+        setWalletError("Invalid P-Chain address (should be P-avax1...)");
         return false;
       }
       
@@ -248,49 +254,86 @@ export default function AccountsPage() {
 
       const account = await accountResponse.json();
 
-      // 2. If Crypto Wallet, create wallet address
+      // 2. If Crypto Wallet, create wallet address(es)
       if (formData.type === "Crypto Wallet") {
-        const address = walletAddressData.address.trim();
-        const isPChain = /^P-avax1[0-9a-z]+$/i.test(address) || /^avax1[0-9a-z]+$/i.test(address);
+        const evmAddress = walletAddressData.address.trim();
+        const pChainAddress = walletAddressData.pChainAddress?.trim();
+        const isEvm = /^0x[a-fA-F0-9]{40}$/.test(evmAddress);
         
-        const walletData = {
-          chainType: walletAddressData.chainType,
-          address: address,
-          // If 'all' or no chain selected, all EVM chains will be scanned
-          evmChainId: isPChain ? undefined : (walletAddressData.evmChainId && walletAddressData.evmChainId !== "all" ? parseInt(walletAddressData.evmChainId) : undefined),
-          isPChain: isPChain,
-          label: walletAddressData.label || undefined,
-          syncEnabled: true,
-        };
-        
-        const walletResponse = await fetch(`/api/accounts/${account.id}/wallet-addresses`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(walletData),
-        });
-        
-        // Auto-sync the wallet after creation
-        if (walletResponse.ok) {
-          const walletAddress = await walletResponse.json();
-          console.log(`[AccountCreate] Auto-syncing wallet ${walletAddress.id}...`);
+        // Create EVM wallet if address provided
+        if (isEvm) {
+          const walletData = {
+            chainType: walletAddressData.chainType,
+            address: evmAddress,
+            // If 'all' or no chain selected, all EVM chains will be scanned
+            evmChainId: walletAddressData.evmChainId && walletAddressData.evmChainId !== "all" ? parseInt(walletAddressData.evmChainId) : undefined,
+            isPChain: false,
+            label: walletAddressData.label || undefined,
+            syncEnabled: true,
+          };
           
-          // Trigger sync in background (don't await to avoid blocking)
-          fetch(`/api/wallet-addresses/${walletAddress.id}/sync`, { method: "POST" })
-            .then(syncResponse => {
-              if (syncResponse.ok) {
-                console.log(`[AccountCreate] Wallet ${walletAddress.id} synced successfully`);
-              } else {
-                console.warn(`[AccountCreate] Wallet ${walletAddress.id} sync failed`);
-              }
-            })
-            .catch(err => console.error(`[AccountCreate] Sync error:`, err));
+          const walletResponse = await fetch(`/api/accounts/${account.id}/wallet-addresses`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(walletData),
+          });
+          
+          // Auto-sync the wallet after creation
+          if (walletResponse.ok) {
+            const walletAddress = await walletResponse.json();
+            console.log(`[AccountCreate] Auto-syncing EVM wallet ${walletAddress.id}...`);
+            fetch(`/api/wallet-addresses/${walletAddress.id}/sync`, { method: "POST" })
+              .then(syncResponse => {
+                if (syncResponse.ok) {
+                  console.log(`[AccountCreate] EVM wallet ${walletAddress.id} synced successfully`);
+                } else {
+                  console.warn(`[AccountCreate] EVM wallet ${walletAddress.id} sync failed`);
+                }
+              })
+              .catch(err => console.error(`[AccountCreate] EVM sync error:`, err));
+          }
+        }
+        
+        // Create P-Chain wallet if address provided
+        if (pChainAddress) {
+          const isPChainValid = /^P-avax1[0-9a-z]+$/i.test(pChainAddress) || /^avax1[0-9a-z]+$/i.test(pChainAddress);
+          if (isPChainValid) {
+            const pChainWalletData = {
+              chainType: "EVM" as const,
+              address: pChainAddress,
+              evmChainId: undefined,
+              isPChain: true,
+              label: walletAddressData.label ? `${walletAddressData.label} (P-Chain)` : "P-Chain",
+              syncEnabled: true,
+            };
+            
+            const pChainResponse = await fetch(`/api/accounts/${account.id}/wallet-addresses`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(pChainWalletData),
+            });
+            
+            if (pChainResponse.ok) {
+              const pChainWallet = await pChainResponse.json();
+              console.log(`[AccountCreate] Auto-syncing P-Chain wallet ${pChainWallet.id}...`);
+              fetch(`/api/wallet-addresses/${pChainWallet.id}/sync`, { method: "POST" })
+                .then(syncResponse => {
+                  if (syncResponse.ok) {
+                    console.log(`[AccountCreate] P-Chain wallet ${pChainWallet.id} synced successfully`);
+                  } else {
+                    console.warn(`[AccountCreate] P-Chain wallet ${pChainWallet.id} sync failed`);
+                  }
+                })
+                .catch(err => console.error(`[AccountCreate] P-Chain sync error:`, err));
+            }
+          }
         }
       }
 
       // 3. Reset and close
       setIsDialogOpen(false);
       setFormData({ name: "", type: "", currency: "EUR", notes: "" });
-      setWalletAddressData({ chainType: "EVM", address: "", evmChainId: "", label: "" });
+      setWalletAddressData({ chainType: "EVM", address: "", evmChainId: "", label: "", pChainAddress: "" });
       setWalletError(null);
       loadAccounts();
     } catch (error) {
@@ -478,6 +521,7 @@ export default function AccountsPage() {
                           ...prev,
                           chainType: value as "EVM" | "SOLANA",
                           evmChainId: "",
+                          pChainAddress: "",
                         }))
                       }
                     >
@@ -523,7 +567,9 @@ export default function AccountsPage() {
                   )}
 
                   <div className="space-y-2">
-                    <Label htmlFor="walletAddress">Address</Label>
+                    <Label htmlFor="walletAddress">
+                      {walletAddressData.chainType === "EVM" ? "EVM Address" : "Address"}
+                    </Label>
                     <Input
                       id="walletAddress"
                       value={walletAddressData.address}
@@ -532,12 +578,30 @@ export default function AccountsPage() {
                       }
                       placeholder={
                         walletAddressData.chainType === "EVM"
-                          ? "0x... or P-avax1..."
+                          ? "0x... (optional if P-Chain provided)"
                           : "Solana address"
                       }
                       className="font-mono text-sm"
                     />
                   </div>
+
+                  {walletAddressData.chainType === "EVM" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="pChainAddress">P-Chain Address (Optional)</Label>
+                      <Input
+                        id="pChainAddress"
+                        value={walletAddressData.pChainAddress}
+                        onChange={(e) =>
+                          setWalletAddressData((prev) => ({ ...prev, pChainAddress: e.target.value }))
+                        }
+                        placeholder="P-avax1... (optional)"
+                        className="font-mono text-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Add your Avalanche P-Chain address to track staking rewards
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label htmlFor="walletLabel">Label (Optional)</Label>
