@@ -214,10 +214,7 @@ export default function AccountsPage() {
         return false;
       }
       
-      if (!isPChain && !isPChainAlt && !walletAddressData.evmChainId) {
-        setWalletError("Please select a chain");
-        return false;
-      }
+      // Chain selection is optional - if not selected, all EVM chains will be scanned
     } else if (walletAddressData.chainType === "SOLANA") {
       const isSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
       if (!isSolana) {
@@ -259,7 +256,8 @@ export default function AccountsPage() {
         const walletData = {
           chainType: walletAddressData.chainType,
           address: address,
-          evmChainId: isPChain ? undefined : parseInt(walletAddressData.evmChainId),
+          // If no chain selected, all EVM chains will be scanned
+          evmChainId: isPChain ? undefined : (walletAddressData.evmChainId ? parseInt(walletAddressData.evmChainId) : undefined),
           isPChain: isPChain,
           label: walletAddressData.label || undefined,
           syncEnabled: true,
@@ -495,7 +493,7 @@ export default function AccountsPage() {
 
                   {walletAddressData.chainType === "EVM" && (
                     <div className="space-y-2">
-                      <Label htmlFor="evmChain">Chain</Label>
+                      <Label htmlFor="evmChain">Chain (Optional)</Label>
                       <Select
                         value={walletAddressData.evmChainId}
                         onValueChange={(value) =>
@@ -503,9 +501,10 @@ export default function AccountsPage() {
                         }
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Select chain" />
+                          <SelectValue placeholder="All chains (auto-scan)" />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="">All chains (auto-scan)</SelectItem>
                           <SelectItem value="1">Ethereum Mainnet</SelectItem>
                           <SelectItem value="137">Polygon</SelectItem>
                           <SelectItem value="42161">Arbitrum</SelectItem>
@@ -515,6 +514,9 @@ export default function AccountsPage() {
                           <SelectItem value="p-chain">Avalanche P-Chain</SelectItem>
                         </SelectContent>
                       </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Leave empty to auto-scan all supported EVM chains
+                      </p>
                     </div>
                   )}
 
