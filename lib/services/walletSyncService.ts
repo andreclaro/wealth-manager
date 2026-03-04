@@ -451,7 +451,8 @@ export class WalletSyncService {
     // Create new Asset - all crypto assets are trackable/visible by default
     const valueUsd = tokenBalance.valueUsd || 0;
     const isSpam = this.isSpamToken(tokenBalance);
-    const shouldBeVisible = !isSpam;
+    const isUnknownSymbol = tokenBalance.symbol === "UNKNOWN" || tokenBalance.symbol === "Unknown";
+    const shouldBeVisible = !isSpam && !isUnknownSymbol;
 
     const newAsset = await prisma.asset.create({
       data: {

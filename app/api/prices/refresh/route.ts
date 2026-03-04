@@ -24,6 +24,15 @@ export async function POST() {
 
     for (const asset of assets) {
       try {
+        // Hide assets with Unknown/UNKNOWN symbol
+        if (asset.symbol === "UNKNOWN" || asset.symbol === "Unknown") {
+          await prisma.asset.update({
+            where: { id: asset.id },
+            data: { isVisible: false },
+          });
+          continue;
+        }
+
         // Add small delay to avoid rate limiting
         await new Promise((resolve) => setTimeout(resolve, 100));
 

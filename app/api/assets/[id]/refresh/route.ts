@@ -37,6 +37,18 @@ export async function POST(
       });
     }
 
+    // Hide assets with Unknown/UNKNOWN symbol
+    if (asset.symbol === "UNKNOWN" || asset.symbol === "Unknown") {
+      await prisma.asset.update({
+        where: { id },
+        data: { isVisible: false },
+      });
+      return NextResponse.json({
+        message: "Asset has unknown symbol, hidden from view",
+        asset: { ...asset, isVisible: false },
+      });
+    }
+
     // Fetch new price (handle ISIN if stored as symbol)
     let symbolToFetch = asset.symbol;
     
