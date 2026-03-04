@@ -256,8 +256,8 @@ export default function AccountsPage() {
         const walletData = {
           chainType: walletAddressData.chainType,
           address: address,
-          // If no chain selected, all EVM chains will be scanned
-          evmChainId: isPChain ? undefined : (walletAddressData.evmChainId ? parseInt(walletAddressData.evmChainId) : undefined),
+          // If 'all' or no chain selected, all EVM chains will be scanned
+          evmChainId: isPChain ? undefined : (walletAddressData.evmChainId && walletAddressData.evmChainId !== "all" ? parseInt(walletAddressData.evmChainId) : undefined),
           isPChain: isPChain,
           label: walletAddressData.label || undefined,
           syncEnabled: true,
@@ -501,10 +501,12 @@ export default function AccountsPage() {
                         }
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="All chains (auto-scan)" />
+                          <SelectValue placeholder="All chains (auto-scan)">
+                            {walletAddressData.evmChainId === "all" ? "All chains (auto-scan)" : undefined}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">All chains (auto-scan)</SelectItem>
+                          <SelectItem value="all">All chains (auto-scan)</SelectItem>
                           <SelectItem value="1">Ethereum Mainnet</SelectItem>
                           <SelectItem value="137">Polygon</SelectItem>
                           <SelectItem value="42161">Arbitrum</SelectItem>
