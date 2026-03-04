@@ -31,7 +31,16 @@ export async function GET() {
     const accounts = await prisma.portfolioAccount.findMany({
       where: { userId },
       orderBy: { name: "asc" },
-      include: { assets: true },
+      include: { 
+        assets: true,
+        walletAddresses: {
+          include: {
+            balances: {
+              orderBy: { valueUsd: "desc" },
+            },
+          },
+        },
+      },
     });
 
     const accountsWithTotals = await Promise.all(
@@ -50,7 +59,20 @@ export async function GET() {
       })
     );
 
-    return NextResponse.json(accountsWithTotals);
+    // Add explorer URLs to wallet addresses
+    const accountsWithExplorerUrls = accountsWithTotals.map((account) => ({
+      ...account,
+      walletAddresses: account.walletAddresses?.map((wa) => ({
+        ...wa,
+        explorerUrl: wa.chainType === "SOLANA"
+          ? `https://jup.ag/portfolio/${wa.address}`
+          : wa.chainType === "EVM"
+          ? `https://debank.com/profile/${wa.address}`
+          : null,
+      })),
+    }));
+
+    return NextResponse.json(accountsWithExplorerUrls);
   } catch (err) {
     console.error("Error fetching accounts:", err);
     return apiError("Failed to fetch accounts");

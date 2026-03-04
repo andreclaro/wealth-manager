@@ -112,9 +112,11 @@ export default function AppLayout({
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={session.user?.image || ""} alt={session.user?.name || ""} />
+                    {session.user?.image && (
+                      <AvatarImage src={session.user.image} alt={session.user.name || ""} />
+                    )}
                     <AvatarFallback>{session.user?.name?.charAt(0) || "U"}</AvatarFallback>
                   </Avatar>
                 </Button>

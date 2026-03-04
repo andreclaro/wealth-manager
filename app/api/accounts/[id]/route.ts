@@ -20,6 +20,16 @@ export async function GET(
         assets: {
           orderBy: { createdAt: "desc" },
         },
+        walletAddresses: {
+          include: {
+            balances: {
+              orderBy: { valueUsd: "desc" },
+              include: {
+                asset: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -62,11 +72,22 @@ export async function GET(
       })
     );
 
+    // Add explorer URLs to wallet addresses
+    const walletAddressesWithUrls = account.walletAddresses?.map((wa) => ({
+      ...wa,
+      explorerUrl: wa.chainType === "SOLANA"
+        ? `https://jup.ag/portfolio/${wa.address}`
+        : wa.chainType === "EVM"
+        ? `https://debank.com/profile/${wa.address}`
+        : null,
+    }));
+
     return NextResponse.json({
       ...account,
       totalValueUSD,
       totalValueEUR,
       assets: assetsWithValue,
+      walletAddresses: walletAddressesWithUrls,
     });
   } catch (error) {
     console.error("Error fetching account:", error);

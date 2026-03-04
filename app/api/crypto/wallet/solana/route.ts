@@ -164,29 +164,120 @@ export async function GET(request: NextRequest) {
     const publicKey = new PublicKey(address);
     const metaplex = Metaplex.make(connection);
 
-    const [
-      solBalanceLamports,
-      tokenAccountsResponses,
-      stakePositions,
-      jupiterHoldingTokens,
-      jupiterPortfolioPositions,
-      jupiterStakePositions,
-    ] =
-      await Promise.all([
-        connection.getBalance(publicKey),
-        Promise.all([
-          connection.getParsedTokenAccountsByOwner(publicKey, {
-            programId: SPL_TOKEN_PROGRAM_ID,
-          }),
-          connection.getParsedTokenAccountsByOwner(publicKey, {
-            programId: TOKEN_2022_PROGRAM_ID,
-          }),
-        ]),
-        fetchStakePositions(connection, address),
-        fetchJupiterHoldingsTokens(address),
-        fetchJupiterPortfolioPositions(address),
-        fetchJupiterStakePositions(address),
+    // Fetch data with individual error handling for resilience
+    let solBalanceLamports = 0;
+    let tokenAccountsResponses: { value: any[] }[] = [{ value: [] }, { value: [] }];
+    let stakePositions = { tokens: [] as TokenInfo[], totalStakedSol: 0, validatorBreakdown: [] as ValidatorStakeInfo[] };
+    let jupiterHoldingTokens: TokenInfo[] = [];
+    let jupiterPortfolioPositions: TokenInfo[] = [];
+    let jupiterStakePositions: TokenInfo[] = [];
+
+    console.info(`[Solana Wallet] Starting upstream fetch for address: ${address.slice(0, 8)}...${address.slice(-8)}`);
+    const upstreamTimings: Record<string, { status: string; durationMs: number; count?: number; error?: string }> = {};
+
+    // Try Solana RPC calls with error handling
+    try {
+      const start = Date.now();
+      console.debug(`[Solana RPC] Fetching balance from: ${SOLANA_RPC}`);
+      solBalanceLamports = await connection.getBalance(publicKey);
+      upstreamTimings["solana-rpc-balance"] = { status: "success", durationMs: Date.now() - start };
+      console.info(`[Solana RPC] Balance fetched: ${solBalanceLamports / 1e9} SOL (${upstreamTimings["solana-rpc-balance"].durationMs}ms)`);
+    } catch (rpcError) {
+      const errorMsg = rpcError instanceof Error ? rpcError.message : String(rpcError);
+      upstreamTimings["solana-rpc-balance"] = { status: "error", durationMs: 0, error: errorMsg };
+      console.warn(`[Solana RPC] getBalance failed: ${errorMsg}`);
+    }
+
+    try {
+      const start = Date.now();
+      console.debug(`[Solana RPC] Fetching token accounts from: ${SOLANA_RPC}`);
+      tokenAccountsResponses = await Promise.all([
+        connection.getParsedTokenAccountsByOwner(publicKey, {
+          programId: SPL_TOKEN_PROGRAM_ID,
+        }),
+        connection.getParsedTokenAccountsByOwner(publicKey, {
+          programId: TOKEN_2022_PROGRAM_ID,
+        }),
       ]);
+      const splCount = tokenAccountsResponses[0].value.length;
+      const token2022Count = tokenAccountsResponses[1].value.length;
+      upstreamTimings["solana-rpc-tokens"] = { status: "success", durationMs: Date.now() - start, count: splCount + token2022Count };
+      console.info(`[Solana RPC] Token accounts fetched: SPL=${splCount}, Token2022=${token2022Count} (${upstreamTimings["solana-rpc-tokens"].durationMs}ms)`);
+    } catch (rpcError) {
+      const errorMsg = rpcError instanceof Error ? rpcError.message : String(rpcError);
+      upstreamTimings["solana-rpc-tokens"] = { status: "error", durationMs: 0, error: errorMsg };
+      console.warn(`[Solana RPC] getParsedTokenAccountsByOwner failed: ${errorMsg}`);
+    }
+
+    // Try stake positions separately
+    try {
+      const start = Date.now();
+      console.debug(`[Solana RPC] Fetching stake positions`);
+      stakePositions = await fetchStakePositions(connection, address);
+      upstreamTimings["solana-stake"] = { status: "success", durationMs: Date.now() - start, count: stakePositions.tokens.length };
+      console.info(`[Solana RPC] Stake positions fetched: ${stakePositions.tokens.length} positions, ${stakePositions.totalStakedSol} SOL staked (${upstreamTimings["solana-stake"].durationMs}ms)`);
+    } catch (stakeError) {
+      const errorMsg = stakeError instanceof Error ? stakeError.message : String(stakeError);
+      upstreamTimings["solana-stake"] = { status: "error", durationMs: 0, error: errorMsg };
+      console.warn(`[Solana RPC] Stake positions failed: ${errorMsg}`);
+    }
+
+    // Try Jupiter APIs (best-effort; may require JUPITER_API_KEY for some endpoints)
+    const jupiterKeyConfigured = hasJupiterApiKey();
+    console.debug(`[Jupiter API] API key configured: ${jupiterKeyConfigured}`);
+    
+    try {
+      const start = Date.now();
+      console.debug(`[Jupiter API] Fetching holdings from: ${JUPITER_ULTRA_API_BASE}/holdings/${address.slice(0, 8)}...`);
+      jupiterHoldingTokens = await fetchJupiterHoldingsTokens(address);
+      upstreamTimings["jupiter-holdings"] = { status: "success", durationMs: Date.now() - start, count: jupiterHoldingTokens.length };
+      console.info(`[Jupiter API] Holdings fetched: ${jupiterHoldingTokens.length} tokens (${upstreamTimings["jupiter-holdings"].durationMs}ms)`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      upstreamTimings["jupiter-holdings"] = { status: "error", durationMs: 0, error: errorMsg };
+      if (jupiterKeyConfigured) {
+        console.warn(`[Jupiter API] Holdings failed (with API key): ${errorMsg}`);
+      } else {
+        console.debug(`[Jupiter API] Holdings unavailable (no API key): ${errorMsg}`);
+      }
+    }
+
+    try {
+      const start = Date.now();
+      console.debug(`[Jupiter API] Fetching portfolio positions from: ${JUPITER_PORTFOLIO_API_BASE}/positions/${address.slice(0, 8)}...`);
+      jupiterPortfolioPositions = await fetchJupiterPortfolioPositions(address);
+      upstreamTimings["jupiter-portfolio"] = { status: "success", durationMs: Date.now() - start, count: jupiterPortfolioPositions.length };
+      console.info(`[Jupiter API] Portfolio positions fetched: ${jupiterPortfolioPositions.length} positions (${upstreamTimings["jupiter-portfolio"].durationMs}ms)`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      upstreamTimings["jupiter-portfolio"] = { status: "error", durationMs: 0, error: errorMsg };
+      if (jupiterKeyConfigured) {
+        console.warn(`[Jupiter API] Portfolio failed (with API key): ${errorMsg}`);
+      } else {
+        console.debug(`[Jupiter API] Portfolio unavailable (no API key): ${errorMsg}`);
+      }
+    }
+
+    try {
+      const start = Date.now();
+      console.debug(`[Jupiter API] Fetching staked JUP positions`);
+      jupiterStakePositions = await fetchJupiterStakePositions(address);
+      upstreamTimings["jupiter-stake"] = { status: "success", durationMs: Date.now() - start, count: jupiterStakePositions.length };
+      console.info(`[Jupiter API] Staked JUP positions fetched: ${jupiterStakePositions.length} positions (${upstreamTimings["jupiter-stake"].durationMs}ms)`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      upstreamTimings["jupiter-stake"] = { status: "error", durationMs: 0, error: errorMsg };
+      if (jupiterKeyConfigured) {
+        console.warn(`[Jupiter API] Stake positions failed (with API key): ${errorMsg}`);
+      } else {
+        console.debug(`[Jupiter API] Stake positions unavailable (no API key): ${errorMsg}`);
+      }
+    }
+
+    // Log summary
+    const successCount = Object.values(upstreamTimings).filter(t => t.status === "success").length;
+    const totalCount = Object.keys(upstreamTimings).length;
+    console.info(`[Solana Wallet] Upstream fetch complete: ${successCount}/${totalCount} sources succeeded`, upstreamTimings);
 
     const solBalance = solBalanceLamports / 1e9;
 
@@ -266,9 +357,13 @@ export async function GET(request: NextRequest) {
       ...jupiterStakePositions,
     ]);
     const protocolPositions = filterRedundantProtocolPositions(tokensWithMetadata, rawProtocolPositions);
+    
+    // Combine stake positions by validator for display
+    const combinedStakeTokens = combineStakePositionsByValidator(stakePositions.tokens);
+    
     const mergedTokens = [
       ...tokensWithMetadata,
-      ...stakePositions.tokens,
+      ...combinedStakeTokens,
       ...protocolPositions,
     ]
       .sort((a, b) => (b.valueUsd ?? b.balance) - (a.valueUsd ?? a.balance));
@@ -286,6 +381,12 @@ export async function GET(request: NextRequest) {
       tokens: mergedTokens,
       tokenCount: mergedTokens.length,
       stakedSolBalance: stakePositions.totalStakedSol,
+      stakedSolBreakdown: stakePositions.validatorBreakdown.map((v) => ({
+        validatorAddress: v.validatorAddress,
+        validatorName: v.validatorName,
+        totalStaked: v.totalStaked,
+        accountCount: v.accountCount,
+      })),
       kaminoPositionCount: 0,
       jupiterPositionCount: jupiterPortfolioPositions.length,
       jupiterHoldingTokenCount: jupiterHoldingTokens.length,
@@ -293,9 +394,21 @@ export async function GET(request: NextRequest) {
       fetchedAt: new Date().toISOString(),
     };
 
+    const totalValueUsd = mergedTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0) + (solBalance * (mergedTokens.find(t => t.symbol === "SOL")?.priceUsd ?? 0));
+    console.info(`[Solana Wallet] Request complete: ${mergedTokens.length} tokens, ${protocolPositions.length} protocol positions, ~$${totalValueUsd.toFixed(2)} total value`);
+
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Error fetching Solana wallet:", error);
+    // Check if this is a known non-critical error (like Jupiter API 403)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const isKnownIssue = errorMessage.includes("403") || errorMessage.includes("Forbidden");
+    
+    if (isKnownIssue) {
+      console.warn("Solana wallet fetch encountered API restriction (non-critical):", errorMessage);
+    } else {
+      console.error("Error fetching Solana wallet:", error);
+    }
+    
     return NextResponse.json(
       { error: "Failed to fetch wallet data" },
       { status: 500 }
@@ -309,22 +422,27 @@ async function resolveTokenMetadata(
   mintAddress: string
 ): Promise<TokenMetadata> {
   if (KNOWN_TOKENS[mintAddress]) {
+    console.debug(`[Metadata] Known token resolved: ${KNOWN_TOKENS[mintAddress].symbol}`);
     return {
       symbol: KNOWN_TOKENS[mintAddress].symbol,
       name: KNOWN_TOKENS[mintAddress].name,
     };
   }
 
+  const start = Date.now();
   const metaplexMetadata = await fetchMetaplexMetadata(connection, metaplex, mintAddress);
   if (metaplexMetadata) {
+    console.debug(`[Metadata] Metaplex resolved: ${metaplexMetadata.symbol} (${Date.now() - start}ms)`);
     return metaplexMetadata;
   }
 
   const token2022Metadata = await fetchToken2022Metadata(connection, mintAddress);
   if (token2022Metadata) {
+    console.debug(`[Metadata] Token2022 resolved: ${token2022Metadata.symbol} (${Date.now() - start}ms)`);
     return token2022Metadata;
   }
 
+  console.debug(`[Metadata] Unknown token: ${mintAddress.slice(0, 8)}... (${Date.now() - start}ms)`);
   return {
     symbol: `${mintAddress.slice(0, 4)}...${mintAddress.slice(-4)}`,
     name: "Unknown Token",
@@ -429,6 +547,14 @@ function extractToken2022Metadata(extensions: any): { symbol?: string; name?: st
   return null;
 }
 
+interface ValidatorStakeInfo {
+  validatorAddress: string;
+  validatorName?: string;
+  totalStaked: number;
+  accountCount: number;
+  accounts: string[];
+}
+
 async function fetchStakePositions(connection: Connection, ownerAddress: string) {
   try {
     const [asStaker, asWithdrawer] = await Promise.all([
@@ -446,11 +572,13 @@ async function fetchStakePositions(connection: Connection, ownerAddress: string)
     });
 
     const stakeTokens: TokenInfo[] = [];
+    const validatorStakes = new Map<string, ValidatorStakeInfo>();
     let totalStakedSol = 0;
 
     for (const [stakeAccount, accountInfo] of uniqueStakeAccounts.entries()) {
       const parsedData = (accountInfo.account.data as any)?.parsed?.info;
       const delegatedLamports = Number(parsedData?.stake?.delegation?.stake || 0);
+      const voter = parsedData?.stake?.delegation?.voter as string | undefined;
       const rentExemptReserve = Number(parsedData?.meta?.rentExemptReserve || 0);
       const activeLamports = Math.max(accountInfo.account.lamports - rentExemptReserve, 0);
       const effectiveLamports =
@@ -462,6 +590,23 @@ async function fetchStakePositions(connection: Connection, ownerAddress: string)
 
       const balance = effectiveLamports / 1e9;
       totalStakedSol += balance;
+
+      // Aggregate by validator
+      if (voter && delegatedLamports > 0) {
+        const existing = validatorStakes.get(voter);
+        if (existing) {
+          existing.totalStaked += balance;
+          existing.accountCount += 1;
+          existing.accounts.push(stakeAccount);
+        } else {
+          validatorStakes.set(voter, {
+            validatorAddress: voter,
+            totalStaked: balance,
+            accountCount: 1,
+            accounts: [stakeAccount],
+          });
+        }
+      }
 
       stakeTokens.push({
         symbol: "SOL",
@@ -475,30 +620,102 @@ async function fetchStakePositions(connection: Connection, ownerAddress: string)
         positionType: "stake",
         explorerUrl: `${SOLSCAN_BASE_URL}/account/${stakeAccount}`,
         stakeAccount,
+        validator: voter,
       });
     }
 
     return {
       tokens: stakeTokens.sort((a, b) => b.balance - a.balance),
       totalStakedSol,
+      validatorBreakdown: Array.from(validatorStakes.values()).sort(
+        (a, b) => b.totalStaked - a.totalStaked
+      ),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`Stake accounts unavailable on current Solana RPC: ${message}`);
-    return { tokens: [] as TokenInfo[], totalStakedSol: 0 };
+    return { tokens: [] as TokenInfo[], totalStakedSol: 0, validatorBreakdown: [] };
   }
 }
 
 function getJupiterApiHeaders(): HeadersInit {
   const apiKey = process.env.JUPITER_API_KEY?.trim();
   if (!apiKey) {
+    console.debug("JUPITER_API_KEY not configured, using default headers");
     return DEFAULT_HTTP_HEADERS;
   }
 
+  console.debug("Using JUPITER_API_KEY for authentication");
   return {
     ...DEFAULT_HTTP_HEADERS,
     "x-api-key": apiKey,
   };
+}
+
+function hasJupiterApiKey(): boolean {
+  return Boolean(process.env.JUPITER_API_KEY?.trim());
+}
+
+/**
+ * Combine stake position tokens by validator for cleaner display
+ * Stakes delegated to the same validator are merged into a single entry
+ */
+function combineStakePositionsByValidator(stakeTokens: TokenInfo[]): TokenInfo[] {
+  const byValidator = new Map<string, TokenInfo[]>();
+  const inactive: TokenInfo[] = [];
+
+  // Group by validator address
+  for (const token of stakeTokens) {
+    const validator = token.validator;
+    if (validator && token.type === "NATIVE_STAKE") {
+      const group = byValidator.get(validator);
+      if (group) {
+        group.push(token);
+      } else {
+        byValidator.set(validator, [token]);
+      }
+    } else {
+      // Keep inactive/warmup stakes separate
+      inactive.push(token);
+    }
+  }
+
+  const combined: TokenInfo[] = [];
+
+  // Combine stakes per validator
+  for (const [validator, tokens] of byValidator.entries()) {
+    if (tokens.length === 1) {
+      // Single stake account for this validator - keep as-is but add validator label
+      const token = tokens[0];
+      combined.push({
+        ...token,
+        name: `Staked SOL (${validator.slice(0, 4)}...${validator.slice(-4)})`,
+      });
+    } else {
+      // Multiple stake accounts - combine them
+      const totalBalance = tokens.reduce((sum, t) => sum + t.balance, 0);
+      const totalRaw = tokens.reduce((sum, t) => sum + Number(t.rawAmount || 0), 0);
+      combined.push({
+        symbol: "SOL",
+        name: `Staked SOL (${validator.slice(0, 4)}...${validator.slice(-4)}) • ${tokens.length} accounts`,
+        balance: totalBalance,
+        decimals: 9,
+        rawAmount: String(totalRaw),
+        chain: "solana",
+        type: "NATIVE_STAKE",
+        source: "solana-stake-program",
+        positionType: "stake",
+        explorerUrl: `${SOLSCAN_BASE_URL}/account/${validator}`,
+        validator,
+        accountCount: tokens.length,
+      });
+    }
+  }
+
+  // Add inactive stakes as-is
+  combined.push(...inactive);
+
+  return combined.sort((a, b) => b.balance - a.balance);
 }
 
 async function fetchJupiterHoldingsTokens(address: string): Promise<TokenInfo[]> {
@@ -760,18 +977,33 @@ async function fetchJsonIfOk(
   endpoint: string,
   headers: HeadersInit = DEFAULT_HTTP_HEADERS
 ): Promise<any> {
+  const start = Date.now();
+  const shortEndpoint = endpoint.replace(/https:\/\//, "").split("/").slice(0, 3).join("/");
   try {
+    console.debug(`[HTTP] GET ${shortEndpoint}/...`);
     const response = await fetch(endpoint, {
       headers,
       cache: "no-store",
     });
+    const duration = Date.now() - start;
 
     if (!response.ok) {
+      // Log 403s as warnings since some Jupiter APIs may require auth
+      if (response.status === 403) {
+        const apiKeyHint = hasJupiterApiKey() ? " (API key configured but may be invalid)" : " (consider adding JUPITER_API_KEY to .env)";
+        console.warn(`[HTTP] 403 Forbidden: ${shortEndpoint}${apiKeyHint} (${duration}ms)`);
+      } else {
+        console.debug(`[HTTP] ${response.status} ${response.statusText}: ${shortEndpoint} (${duration}ms)`);
+      }
       return null;
     }
 
+    console.debug(`[HTTP] 200 OK: ${shortEndpoint} (${duration}ms)`);
     return readJsonIfPossible(response);
-  } catch {
+  } catch (err) {
+    const duration = Date.now() - start;
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.debug(`[HTTP] Network error: ${shortEndpoint} - ${errorMsg} (${duration}ms)`);
     return null;
   }
 }

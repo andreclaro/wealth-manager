@@ -26,15 +26,21 @@ const {
     strategy: "jwt",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account, profile }) {
       if (user) {
         token.id = user.id;
+        token.image = user.image;
+      }
+      // If Google provider, get image from profile (Google uses 'picture')
+      if (account?.provider === 'google' && (profile as any)?.picture) {
+        token.image = (profile as any).picture;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = token.id as string;
+        session.user.image = token.image as string;
       }
       return session;
     },

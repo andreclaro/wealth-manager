@@ -1,6 +1,51 @@
-import { AssetType, Currency, PortfolioAccount } from "@prisma/client";
+import { AssetType, Currency, PortfolioAccount, WalletChainType, AssetSource } from "@prisma/client";
 
-export type { PortfolioAccount as Account };
+export type { PortfolioAccount as Account, WalletChainType, AssetSource };
+
+export interface WalletBalanceWithAsset {
+  id: string;
+  walletAddressId: string;
+  contractAddress: string | null;
+  symbol: string;
+  name: string;
+  decimals: number;
+  balance: number;
+  rawBalance: string;
+  priceUsd: number | null;
+  priceEur: number | null;
+  valueUsd: number | null;
+  valueEur: number | null;
+  priceUpdatedAt: Date | null;
+  isNative: boolean;
+  isVerified: boolean;
+  logoUrl: string | null;
+  assetId: string | null;
+  asset: {
+    id: string;
+    symbol: string;
+    name: string;
+    isVisible: boolean;
+    isSpam: boolean;
+  } | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface WalletAddressWithBalances {
+  id: string;
+  accountId: string;
+  chainType: WalletChainType;
+  address: string;
+  label: string | null;
+  evmChainId: number | null;
+  isPChain: boolean;
+  syncEnabled: boolean;
+  lastSyncedAt: Date | null;
+  balances: WalletBalanceWithAsset[];
+  explorerUrl: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 export interface AssetWithValue {
   id: string;
@@ -14,6 +59,9 @@ export interface AssetWithValue {
   priceUpdatedAt: Date | null;
   notes: string | null;
   isManualPrice: boolean;
+  isVisible: boolean;
+  isSpam: boolean;
+  source: AssetSource;
   accountId: string;
   account: PortfolioAccount;
   createdAt: Date;
@@ -68,6 +116,7 @@ export interface AccountWithTotals extends PortfolioAccount {
   totalValueUSD: number;
   totalValueEUR: number;
   assets: AssetWithValue[];
+  walletAddresses?: WalletAddressWithBalances[];
 }
 
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {

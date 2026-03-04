@@ -22,6 +22,16 @@ enum AssetType {
   OTHER
 }
 
+enum WalletChainType {
+  EVM
+  SOLANA
+}
+
+enum AssetSource {
+  MANUAL
+  WALLET_SYNC
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -86,8 +96,9 @@ model PortfolioAccount {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assets Asset[]
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assets          Asset[]
+  walletAddresses WalletAddress[]
+  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([type])
   @@index([userId])
@@ -117,12 +128,19 @@ model Asset {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  priceHistory PriceHistory[]
-  account      PortfolioAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  // Visibility control for auto-added assets
+  isVisible      Boolean   @default(true)
+  isSpam         Boolean   @default(false)
+  source         AssetSource @default(MANUAL)
+
+  priceHistory   PriceHistory[]
+  walletBalances WalletBalance[]
+  account        PortfolioAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@index([type])
   @@index([currency])
   @@index([accountId])
+  @@index([isVisible])
 }
 
 model PriceHistory {
@@ -155,4 +173,76 @@ model AppConfig {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// New models for crypto wallet integration
+
+model WalletAddress {
+  id          String        @id @default(uuid())
+  accountId   String
+
+  // Address details
+  chainType   WalletChainType
+  address     String        // The actual blockchain address
+  label       String?       // User-defined label (e.g., "Main Wallet", "Cold Storage")
+
+  // Chain-specific fields
+  evmChainId  Int?          // For EVM: 1 (Ethereum), 137 (Polygon), 43114 (Avalanche), etc.
+  isPChain    Boolean       @default(false)  // For Avalanche P-Chain
+
+  // Sync settings
+  syncEnabled Boolean       @default(true)
+  lastSyncedAt DateTime?
+
+  // Metadata
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  account     PortfolioAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  balances    WalletBalance[]
+
+  @@unique([accountId, chainType, address])
+  @@index([accountId])
+  @@index([chainType, address])
+}
+
+model WalletBalance {
+  id              String   @id @default(uuid())
+  walletAddressId String
+
+  // Token info
+  contractAddress String?  // Token contract (null for native tokens)
+  symbol          String
+  name            String
+  decimals        Int      @default(18)
+
+  // Balance
+  balance         Float    // Human-readable balance
+  rawBalance      String   // Raw balance as string for precision
+
+  // Price info (cached)
+  priceUsd        Float?
+  priceEur        Float?
+  valueUsd        Float?
+  valueEur        Float?
+  priceUpdatedAt  DateTime?
+
+  // Metadata
+  isNative        Boolean  @default(false)  // ETH, SOL, AVAX, etc.
+  isVerified      Boolean  @default(false)  // Known/verified token
+  logoUrl         String?
+
+  // Link to Asset (if user tracks this in portfolio)
+  assetId         String?
+  asset           Asset?   @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  walletAddress   WalletAddress @relation(fields: [walletAddressId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([walletAddressId, contractAddress])
+  @@index([walletAddressId])
+  @@index([assetId])
 }

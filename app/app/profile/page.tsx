@@ -265,7 +265,7 @@ export default function ProfilePage() {
           {/* User Avatar and Info */}
           <div className="flex items-center gap-4">
             <Avatar className="h-16 w-16">
-              <AvatarImage src={user.image} alt={user.name} />
+              {user.image && <AvatarImage src={user.image} alt={user.name} />}
               <AvatarFallback className="text-lg">{user.name?.charAt(0) || "U"}</AvatarFallback>
             </Avatar>
             <div>

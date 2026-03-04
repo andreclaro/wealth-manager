@@ -13,6 +13,23 @@ let coinGeckoBackoffUntil = 0;
 const MAX_TOKENS_PER_BATCH = 600;
 const BATCH_ROUTE_RATE_LIMIT = { windowMs: 60_000, maxRequests: 20 } as const;
 
+// Jupiter API configuration
+const DEFAULT_HTTP_HEADERS: HeadersInit = {
+  accept: "application/json",
+  "user-agent": "wealth-manager/1.0",
+};
+
+function getJupiterApiHeaders(): HeadersInit {
+  const apiKey = process.env.JUPITER_API_KEY?.trim();
+  if (!apiKey) {
+    return DEFAULT_HTTP_HEADERS;
+  }
+  return {
+    ...DEFAULT_HTTP_HEADERS,
+    "x-api-key": apiKey,
+  };
+}
+
 // Token ID mappings for CoinGecko (major tokens only)
 const TOKEN_ID_MAP: Record<string, string> = {
   ETH: "ethereum",
@@ -480,9 +497,12 @@ async function fetchJupiterPricesByMint(tokens: any[], defaultChainId: string) {
 
     let chunkResolved = false;
 
+    const headers = getJupiterApiHeaders();
+
     for (const buildEndpoint of endpointBuilders) {
       try {
         const response = await fetch(buildEndpoint(idsParam), {
+          headers,
           next: { revalidate: 60 },
         });
 

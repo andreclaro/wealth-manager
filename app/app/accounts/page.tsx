@@ -44,6 +44,7 @@ import {
   Building2,
   ExternalLink,
   LayoutGrid,
+  Link2,
   List,
   Pencil,
   Plus,
@@ -479,7 +480,7 @@ export default function AccountsPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <Link
-                          href={`/app/assets?account=${account.id}`}
+                          href={account.type === "Crypto Wallet" ? `/app/accounts/${account.id}` : `/app/assets?account=${account.id}`}
                           className="group flex items-center gap-1.5"
                         >
                           <CardTitle className="text-base group-hover:text-primary transition-colors truncate">
@@ -489,6 +490,11 @@ export default function AccountsPage() {
                         </Link>
                         <CardDescription className="text-xs">
                           {account.type || "No type"}
+                          {account.type === "Crypto Wallet" && account.walletAddresses && account.walletAddresses.length > 0 && (
+                            <span className="ml-1 text-muted-foreground">
+                              • {account.walletAddresses.length} address{account.walletAddresses.length !== 1 ? "es" : ""}
+                            </span>
+                          )}
                         </CardDescription>
                       </div>
                       <div className="flex items-center gap-1">
@@ -535,11 +541,23 @@ export default function AccountsPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Wallet className="h-3.5 w-3.5" />
-                        <span>
-                          {account.assets.length} asset
-                          {account.assets.length !== 1 ? "s" : ""}
-                        </span>
+                        {account.type === "Crypto Wallet" ? (
+                          <>
+                            <Wallet className="h-3.5 w-3.5" />
+                            <span>
+                              {account.walletAddresses?.length || 0} wallet
+                              {(account.walletAddresses?.length || 0) !== 1 ? "s" : ""}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Wallet className="h-3.5 w-3.5" />
+                            <span>
+                              {account.assets.length} asset
+                              {account.assets.length !== 1 ? "s" : ""}
+                            </span>
+                          </>
+                        )}
                         <span>•</span>
                         <span>{account.currency}</span>
                       </div>
@@ -576,16 +594,25 @@ export default function AccountsPage() {
                     <TableRow key={account.id} className="group hover:bg-muted/50">
                       <TableCell>
                         <Link
-                          href={`/app/assets?account=${account.id}`}
+                          href={account.type === "Crypto Wallet" ? `/app/accounts/${account.id}` : `/app/assets?account=${account.id}`}
                           className="block hover:opacity-75 transition-opacity"
                         >
                           <div className="flex items-center gap-2">
-                            <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            {account.type === "Crypto Wallet" ? (
+                              <Wallet className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            ) : (
+                              <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            )}
                             <div className="min-w-0">
                               <p className="font-medium truncate max-w-[220px]">
                                 {account.name}
                               </p>
-                              {account.notes && (
+                              {account.type === "Crypto Wallet" && account.walletAddresses && account.walletAddresses.length > 0 && (
+                                <p className="text-xs text-muted-foreground truncate max-w-[220px]">
+                                  {account.walletAddresses.length} address{account.walletAddresses.length !== 1 ? "es" : ""}
+                                </p>
+                              )}
+                              {account.notes && account.type !== "Crypto Wallet" && (
                                 <p className="text-xs text-muted-foreground truncate max-w-[220px]">
                                   {account.notes}
                                 </p>
@@ -609,8 +636,8 @@ export default function AccountsPage() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                            <Link href={`/app/assets?account=${account.id}`}>
-                              <ExternalLink className="h-4 w-4" />
+                            <Link href={account.type === "Crypto Wallet" ? `/app/accounts/${account.id}` : `/app/assets?account=${account.id}`}>
+                              <Link2 className="h-4 w-4" />
                             </Link>
                           </Button>
                           <Button
