@@ -101,7 +101,7 @@ export async function PUT(
   }
 }
 
-// DELETE /api/wallet-addresses/[id] - Delete wallet address
+// DELETE /api/wallet-addresses/[id] - Delete wallet address and associated assets
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -112,11 +112,18 @@ export async function DELETE(
   const { id } = await params;
 
   try {
-    // Verify ownership
+    // Verify ownership and get related data
     const existingAddress = await prisma.walletAddress.findFirst({
       where: {
         id,
         account: { userId },
+      },
+      include: {
+        balances: {
+          include: {
+            asset: true,
+          },
+        },
       },
     });
 
@@ -124,8 +131,38 @@ export async function DELETE(
       return apiError("Wallet address not found", 404);
     }
 
-    await prisma.walletAddress.delete({
-      where: { id },
+    // Collect asset IDs that were created from this wallet and are not linked to other wallets
+    const assetIdsToCheck = existingAddress.balances
+      .filter(b => b.asset && b.asset.source === "WALLET_SYNC")
+      .map(b => b.asset!.id);
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete wallet balances
+      await tx.walletBalance.deleteMany({
+        where: { walletAddressId: id },
+      });
+
+      // 2. Delete the wallet address
+      await tx.walletAddress.delete({
+        where: { id },
+      });
+
+      // 3. For each asset created from this wallet, check if it's linked to other wallet balances
+      for (const assetId of assetIdsToCheck) {
+        const otherBalances = await tx.walletBalance.findFirst({
+          where: { assetId },
+        });
+
+        // If no other wallet balances link to this asset, delete it
+        if (!otherBalances) {
+          await tx.priceHistory.deleteMany({
+            where: { assetId },
+          });
+          await tx.asset.delete({
+            where: { id: assetId },
+          });
+        }
+      }
     });
 
     return NextResponse.json({ success: true });

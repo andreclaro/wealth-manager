@@ -50,6 +50,7 @@ const ACCOUNT_TYPES = [
   "Broker",
   "Crypto Exchange",
   "Crypto Wallet",
+  "Equity",
   "Savings",
   "Pension",
   "P2P",

@@ -144,7 +144,7 @@ export async function PUT(
   }
 }
 
-// DELETE /api/accounts/[id] - Delete an account
+// DELETE /api/accounts/[id] - Delete an account and all associated data
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -156,10 +156,13 @@ export async function DELETE(
     }
     const { id } = await params;
 
-    // Check if account has assets and belongs to current user
+    // Verify account belongs to current user
     const account = await prisma.portfolioAccount.findUnique({
       where: { id, userId },
-      include: { _count: { select: { assets: true } } },
+      include: { 
+        assets: { select: { id: true } },
+        walletAddresses: { select: { id: true } },
+      },
     });
 
     if (!account) {
@@ -169,15 +172,36 @@ export async function DELETE(
       );
     }
 
-    if (account._count.assets > 0) {
-      return NextResponse.json(
-        { error: "Cannot delete account with assets. Move or delete assets first." },
-        { status: 400 }
-      );
-    }
+    // Delete all related data in transaction
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete price history for all assets
+      for (const asset of account.assets) {
+        await tx.priceHistory.deleteMany({
+          where: { assetId: asset.id },
+        });
+      }
 
-    await prisma.portfolioAccount.delete({
-      where: { id },
+      // 2. Delete wallet balances for all wallet addresses
+      for (const walletAddress of account.walletAddresses) {
+        await tx.walletBalance.deleteMany({
+          where: { walletAddressId: walletAddress.id },
+        });
+      }
+
+      // 3. Delete wallet addresses (cascade would handle this, but being explicit)
+      await tx.walletAddress.deleteMany({
+        where: { accountId: id },
+      });
+
+      // 4. Delete assets
+      await tx.asset.deleteMany({
+        where: { accountId: id },
+      });
+
+      // 5. Finally delete the account
+      await tx.portfolioAccount.delete({
+        where: { id },
+      });
     });
 
     return NextResponse.json({ success: true });

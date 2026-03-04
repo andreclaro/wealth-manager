@@ -56,6 +56,21 @@ const CRYPTO_MAPPINGS: Record<string, string> = {
   DOGE: "dogecoin",
   SHIB: "shiba-inu",
   TRX: "tron",
+  // Solana ecosystem
+  JUP: "jupiter-exchange-solana",
+  JTO: "jito-governance-token",
+  JITO: "jito-governance-token",
+  JITOSOL: "jito-staked-sol",
+  JLP: "jupiter-perps",
+  BONK: "bonk",
+  PYTH: "pyth-network",
+  RAY: "raydium",
+  SRM: "serum",
+  MSOL: "marinade-staked-sol",
+  BSOL: "blaze-staked-sol",
+  // Stablecoins
+  USDC: "usd-coin",
+  USDT: "tether",
 };
 
 // European ETFs (XETRA/LSE) - Finnhub doesn't support these. Stooq format: symbol.de, symbol.l
@@ -331,12 +346,14 @@ export async function fetchStockPrice(symbol: string): Promise<{ usd: number; eu
  * Fetch cryptocurrency price from CoinGecko
  */
 export async function fetchCryptoPrice(symbol: string): Promise<{ usd: number; eur: number } | null> {
-  const coinId = CRYPTO_MAPPINGS[symbol.toUpperCase()];
+  const lookupKey = symbol.toUpperCase().trim();
+  const coinId = CRYPTO_MAPPINGS[lookupKey];
   
   if (!coinId) {
-    console.warn(`Unknown cryptocurrency symbol: ${symbol}`);
+    console.warn(`[CryptoPrice] Unknown symbol: ${symbol} (lookup: ${lookupKey})`);
     return null;
   }
+  console.debug(`[CryptoPrice] Fetching ${symbol} (${lookupKey}) -> ${coinId}`);
 
   try {
     const response = await fetch(

@@ -85,7 +85,7 @@ export function WalletAddressCard({
   };
 
   const visibleBalances = walletAddress.balances.filter(
-    (b) => b.asset?.isVisible !== false && b.valueUsd && b.valueUsd > 0.01
+    (b) => !b.asset || (b.asset.isVisible !== false && !b.asset.isSpam)
   );
 
   const totalValue = visibleBalances.reduce(
@@ -204,10 +204,12 @@ export function WalletAddressCard({
                   )}
                 </div>
                 <span className="text-muted-foreground">
-                  ${balance.valueUsd?.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                  {balance.valueUsd && balance.valueUsd > 0
+                    ? `$${balance.valueUsd.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}`
+                    : "—"}
                 </span>
               </div>
             ))}

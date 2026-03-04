@@ -282,6 +282,7 @@ export default function AssetsPage() {
                 <DialogTitle>Add New Asset</DialogTitle>
               </DialogHeader>
               <AssetForm
+                initialData={accountFilter !== "ALL" ? { accountId: accountFilter } : undefined}
                 onSubmit={handleAddAsset}
                 onCancel={() => setAddingAsset(false)}
                 submitLabel="Add Asset"

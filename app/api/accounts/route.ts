@@ -36,6 +36,9 @@ export async function GET() {
         walletAddresses: {
           include: {
             balances: {
+              include: {
+                asset: true,
+              },
               orderBy: { valueUsd: "desc" },
             },
           },

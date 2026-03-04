@@ -64,6 +64,7 @@ const ACCOUNT_TYPES = [
   "Broker",
   "Crypto Exchange",
   "Crypto Wallet",
+  "Equity",
   "Savings",
   "Pension",
   "P2P",
@@ -285,8 +286,13 @@ export default function AccountsPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this account?")) {
+  const handleDelete = async (id: string, assetCount: number) => {
+    const hasAssets = assetCount > 0;
+    const message = hasAssets
+      ? `⚠️ This account has ${assetCount} asset(s). Deleting it will also delete all associated assets and wallet addresses. Are you sure you want to continue?`
+      : "Are you sure you want to delete this account?";
+    
+    if (!confirm(message)) {
       return;
     }
 
@@ -693,13 +699,8 @@ export default function AccountsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive"
-                          onClick={() => handleDelete(account.id)}
-                          disabled={account.assets.length > 0}
-                          title={
-                            account.assets.length > 0
-                              ? "Cannot delete account with assets"
-                              : "Delete account"
-                          }
+                          onClick={() => handleDelete(account.id, account.assets.length)}
+                          title="Delete account"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -834,13 +835,8 @@ export default function AccountsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-destructive"
-                            onClick={() => handleDelete(account.id)}
-                            disabled={account.assets.length > 0}
-                            title={
-                              account.assets.length > 0
-                                ? "Cannot delete account with assets"
-                                : "Delete account"
-                            }
+                            onClick={() => handleDelete(account.id, account.assets.length)}
+                            title="Delete account"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
