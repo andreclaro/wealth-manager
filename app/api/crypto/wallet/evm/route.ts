@@ -281,9 +281,15 @@ export async function GET(request: NextRequest) {
     .map((nativeBalance) => mapNativeBalanceToWalletToken(nativeBalance))
     .filter((token): token is WalletToken => Boolean(token));
 
-  const tokens = successfulResults
+  const tokensWithoutPrices = successfulResults
     .flatMap((result) => result.tokens)
-    .concat(nativeTokens)
+    .concat(nativeTokens);
+
+  // Fetch prices for tokens from CoinGecko
+  const tokens = await fetchTokenPrices(tokensWithoutPrices);
+  
+  // Sort by value then balance
+  const sortedTokens = tokens
     .sort((a, b) => {
       const aValue = Number(a.valueUsd || 0);
       const bValue = Number(b.valueUsd || 0);
@@ -2085,4 +2091,109 @@ function base58Encode(buffer: Buffer) {
   }
 
   return encoded || "1";
+}
+
+// CoinGecko ID mappings for common EVM tokens
+const COINGECKO_MAPPINGS: Record<string, string> = {
+  ETH: "ethereum",
+  WETH: "weth",
+  USDC: "usd-coin",
+  USDT: "tether",
+  DAI: "dai",
+  WBTC: "wrapped-bitcoin",
+  AVAX: "avalanche-2",
+  WAVAX: "wrapped-avax",
+  MATIC: "matic-network",
+  ARB: "arbitrum",
+  OP: "optimism",
+  UNI: "uniswap",
+  LINK: "chainlink",
+  AAVE: "aave",
+  CRV: "curve-dao-token",
+  GMX: "gmx",
+  HYPE: "hyperliquid",
+  GNO: "gnosis",
+  XDAI: "xdai",
+  SAVAX: "benqi-liquid-staked-avax",
+  GGAVAX: "gogopool-ggavax",
+  STAVAX: "gogopool-ggavax",
+};
+
+// Cache for prices to avoid repeated API calls
+const priceCache = new Map<string, { price: number; timestamp: number }>();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Fetch token prices from CoinGecko and update tokens with price data
+ */
+async function fetchTokenPrices(tokens: WalletToken[]): Promise<WalletToken[]> {
+  if (tokens.length === 0) return tokens;
+
+  const uniqueSymbols = [...new Set(tokens.map((t) => t.symbol.toUpperCase()))];
+  const coinIds = uniqueSymbols
+    .map((s) => COINGECKO_MAPPINGS[s])
+    .filter(Boolean);
+
+  if (coinIds.length === 0) return tokens;
+
+  // Check cache first
+  const now = Date.now();
+  const cachedPrices = new Map<string, number>();
+  const uncachedIds: string[] = [];
+
+  for (const id of coinIds) {
+    const cached = priceCache.get(id);
+    if (cached && now - cached.timestamp < CACHE_DURATION) {
+      cachedPrices.set(id, cached.price);
+    } else {
+      uncachedIds.push(id);
+    }
+  }
+
+  // Fetch uncached prices
+  if (uncachedIds.length > 0) {
+    try {
+      const idsParam = uncachedIds.join(",");
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${idsParam}&vs_currencies=usd`,
+        { cache: "no-store" }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        for (const [id, priceData] of Object.entries(data)) {
+          const price = (priceData as any)?.usd;
+          if (typeof price === "number") {
+            priceCache.set(id, { price, timestamp: now });
+            cachedPrices.set(id, price);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("[EVM Wallet] Failed to fetch CoinGecko prices:", error);
+    }
+  }
+
+  // Build symbol -> price map
+  const symbolPrices = new Map<string, number>();
+  for (const [symbol, coinId] of Object.entries(COINGECKO_MAPPINGS)) {
+    const price = cachedPrices.get(coinId);
+    if (price) {
+      symbolPrices.set(symbol, price);
+    }
+  }
+
+  // Update tokens with prices
+  return tokens.map((token) => {
+    const price = symbolPrices.get(token.symbol.toUpperCase());
+    if (price && !token.priceUsd) {
+      return {
+        ...token,
+        priceUsd: price,
+        valueUsd: token.balance * price,
+        priceSource: "coingecko",
+      };
+    }
+    return token;
+  });
 }
