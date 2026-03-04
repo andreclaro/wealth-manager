@@ -183,15 +183,10 @@ export function LiveMarketsWidget() {
   if (isLoading) {
     return (
       <Card className="wm-surface">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Activity className="h-4 w-4" />
-            Live Markets
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center h-32">
-            <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+        <CardContent className="py-3">
+          <div className="flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Loading markets...</span>
           </div>
         </CardContent>
       </Card>
@@ -200,26 +195,26 @@ export function LiveMarketsWidget() {
 
   return (
     <Card className="wm-surface">
-      <CardHeader className="pb-3">
+      <CardHeader className="py-2 px-4">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Activity className="h-4 w-4" />
-            Live Markets
+          <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+            <Activity className="h-3.5 w-3.5" />
+            Markets
           </CardTitle>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7"
+              className="h-6 w-6"
               onClick={handleRefresh}
               disabled={isRefreshing}
             >
-              <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+              <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
             </Button>
             <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
               <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7">
-                  <Settings className="h-4 w-4" />
+                <Button variant="ghost" size="icon" className="h-6 w-6">
+                  <Settings className="h-3 w-3" />
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-2xl max-h-[80vh]">
@@ -270,71 +265,40 @@ export function LiveMarketsWidget() {
         </div>
       </CardHeader>
 
-      <CardContent className="pt-0">
+      <CardContent className="py-2 px-4">
         {trackedAssets.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-sm text-muted-foreground mb-3">
-              No assets tracked. Select assets to monitor live prices.
-            </p>
-            <Button variant="outline" size="sm" onClick={() => setIsConfigOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              Add Assets
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">No assets tracked</span>
+            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setIsConfigOpen(true)}>
+              <Plus className="h-3 w-3 mr-1" />
+              Add
             </Button>
           </div>
         ) : (
-          <div className="space-y-3">
-            {Object.entries(trackedByCategory).map(([category, items]) => (
-              <div key={category}>
-                <h4 className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                  {CATEGORY_ICONS[category as MarketAssetCategory]}
-                  {CATEGORY_LABELS[category as MarketAssetCategory]}
-                  <Badge variant="secondary" className="text-[10px]">
-                    {items.length}
-                  </Badge>
-                </h4>
-                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
-                  {items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex-shrink-0 w-[160px] p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors group relative"
-                    >
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 absolute top-1 right-1 opacity-0 group-hover:opacity-100"
-                        onClick={() => handleToggleAsset(item.asset.id, true)}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <div className="min-w-0 pr-5">
-                        <p className="font-medium text-sm truncate">
-                          {item.asset.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {item.asset.symbol}
-                        </p>
-                      </div>
-                      
-                      {item.asset.priceCache ? (
-                        <div className="mt-2">
-                          <p className="text-lg font-semibold">
-                            {formatCurrency(item.asset.priceCache.price, item.asset.currency as any, {
-                              decimals: 2,
-                            })}
-                          </p>
-                          {formatChange(
-                            item.asset.priceCache.change,
-                            item.asset.priceCache.changePercent
-                          )}
-                        </div>
-                      ) : (
-                        <div className="mt-2">
-                          <p className="text-sm text-muted-foreground">Loading...</p>
-                          <p className="text-[10px] text-muted-foreground">Click refresh</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            {trackedAssets.map((item) => (
+              <div
+                key={item.id}
+                className="flex-shrink-0 px-3 py-2 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{item.asset.symbol}</span>
+                  {item.asset.priceCache ? (
+                    <>
+                      <span className="text-sm">
+                        {formatCurrency(item.asset.priceCache.price, item.asset.currency as any, { decimals: 2 })}
+                      </span>
+                      <span className={cn(
+                        "text-xs",
+                        (item.asset.priceCache.changePercent || 0) >= 0 ? "text-green-600" : "text-red-600"
+                      )}>
+                        {(item.asset.priceCache.changePercent || 0) >= 0 ? "+" : ""}
+                        {(item.asset.priceCache.changePercent || 0).toFixed(2)}%
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
                 </div>
               </div>
             ))}
