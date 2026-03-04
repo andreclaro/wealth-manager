@@ -178,6 +178,9 @@ export function WalletAddressCard({
         </div>
       </CardHeader>
       <CardContent className="pt-0">
+        <p className="text-xs text-muted-foreground mb-2">
+          To change address, remove this one first
+        </p>
         {visibleBalances.length > 0 ? (
           <div className="space-y-1.5">
             <div className="flex justify-between items-center text-xs text-muted-foreground pb-1 border-b">

@@ -98,17 +98,13 @@ export async function POST(
       return apiError(`Invalid ${chainType} address format`, 400);
     }
 
-    // Check for duplicate address in this account
-    const existingAddress = await prisma.walletAddress.findFirst({
-      where: {
-        accountId: id,
-        chainType,
-        address: address.trim(),
-      },
+    // Check if account already has a wallet address (one per account rule)
+    const existingAddressCount = await prisma.walletAddress.count({
+      where: { accountId: id },
     });
 
-    if (existingAddress) {
-      return apiError("This address is already added to this account", 409);
+    if (existingAddressCount > 0) {
+      return apiError("Account already has a wallet address. One address per account.", 409);
     }
 
     // Normalize P-Chain address if applicable

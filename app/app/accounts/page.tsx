@@ -674,7 +674,7 @@ export default function AccountsPage() {
                           {account.type || "No type"}
                           {account.type === "Crypto Wallet" && account.walletAddresses && account.walletAddresses.length > 0 && (
                             <span className="ml-1 text-muted-foreground">
-                              • {account.walletAddresses.length} address{account.walletAddresses.length !== 1 ? "es" : ""}
+                              • Wallet connected
                             </span>
                           )}
                         </CardDescription>
@@ -727,8 +727,7 @@ export default function AccountsPage() {
                           <>
                             <Wallet className="h-3.5 w-3.5" />
                             <span>
-                              {account.walletAddresses?.length || 0} wallet
-                              {(account.walletAddresses?.length || 0) !== 1 ? "s" : ""}
+                              {account.walletAddresses && account.walletAddresses.length > 0 ? "Wallet connected" : "No wallet"}
                             </span>
                           </>
                         ) : (
@@ -791,7 +790,7 @@ export default function AccountsPage() {
                               </p>
                               {account.type === "Crypto Wallet" && account.walletAddresses && account.walletAddresses.length > 0 && (
                                 <p className="text-xs text-muted-foreground truncate max-w-[220px]">
-                                  {account.walletAddresses.length} address{account.walletAddresses.length !== 1 ? "es" : ""}
+                                  Wallet connected
                                 </p>
                               )}
                               {account.notes && account.type !== "Crypto Wallet" && (

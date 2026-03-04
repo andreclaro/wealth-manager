@@ -191,12 +191,14 @@ export function AccountDetailView({ account, onUpdate }: AccountDetailViewProps)
                           isSyncingAll ? "animate-spin" : ""
                         }`}
                       />
-                      Sync All
+                      Sync
                     </Button>
-                    <AddWalletAddressDialog
-                      accountId={account.id}
-                      onAdd={handleAddWalletAddress}
-                    />
+                    {walletAddresses.length === 0 && (
+                      <AddWalletAddressDialog
+                        accountId={account.id}
+                        onAdd={handleAddWalletAddress}
+                      />
+                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -217,18 +219,15 @@ export function AccountDetailView({ account, onUpdate }: AccountDetailViewProps)
               )}
             </Card>
 
-            {/* Wallet Addresses Grid */}
+            {/* Wallet Address */}
             {walletAddresses.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {walletAddresses.map((walletAddress) => (
-                  <WalletAddressCard
-                    key={walletAddress.id}
-                    walletAddress={walletAddress}
-                    onSync={handleSyncWallet}
-                    onDelete={handleDeleteWalletAddress}
-                    isSyncing={isSyncing === walletAddress.id}
-                  />
-                ))}
+              <div className="max-w-xl">
+                <WalletAddressCard
+                  walletAddress={walletAddresses[0]}
+                  onSync={handleSyncWallet}
+                  onDelete={handleDeleteWalletAddress}
+                  isSyncing={isSyncing === walletAddresses[0].id}
+                />
               </div>
             ) : (
               <Card className="wm-surface text-center py-12">
