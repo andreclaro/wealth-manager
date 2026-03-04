@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PortfolioChart } from "@/components/PortfolioChart";
 import { PortfolioHistory } from "@/components/PortfolioHistory";
 import { AssetCard } from "@/components/AssetCard";
+import { LiveMarketsWidget } from "@/components/LiveMarketsWidget";
 import {
   Dialog,
   DialogContent,
@@ -184,8 +185,13 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Live Markets & Summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1">
+          <LiveMarketsWidget />
+        </div>
+        <div className="lg:col-span-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="wm-surface wm-soft-hover">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
@@ -235,6 +241,8 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+          </div>
+        </div>
       </div>
 
       {/* Charts */}
@@ -248,34 +256,36 @@ export default function Dashboard() {
       </div>
 
       {/* Recent Assets */}
-      <div className="space-y-4">
-        <div className="wm-page-header">
-          <h2 className="text-xl font-semibold tracking-tight">Recent Assets</h2>
-          <Button variant="outline" className="wm-surface" onClick={() => router.push("/app/assets")}>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">Recent Assets</h2>
+          <Button variant="ghost" size="sm" onClick={() => router.push("/app/assets")}>
             View All
           </Button>
         </div>
 
         {assets.length === 0 ? (
-          <Card className="wm-surface p-8 text-center">
-            <p className="text-muted-foreground mb-4">
+          <Card className="wm-surface p-6 text-center">
+            <p className="text-muted-foreground mb-3 text-sm">
               No assets in your portfolio yet. Start by adding your first asset!
             </p>
-            <Button onClick={() => setAddingAsset(true)} className="wm-soft-hover">
+            <Button onClick={() => setAddingAsset(true)} className="wm-soft-hover" size="sm">
               <Plus className="mr-2 h-4 w-4" />
               Add Your First Asset
             </Button>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {assets.slice(0, 6).map((asset) => (
-              <AssetCard
-                key={asset.id}
-                asset={asset}
-                onRefresh={() => handleRefreshAsset(asset.id)}
-                onEdit={() => router.push(`/app/assets/${asset.id}/edit`)}
-                onDelete={() => handleDeleteAsset(asset.id)}
-              />
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+            {assets.slice(0, 5).map((asset) => (
+              <div key={asset.id} className="flex-shrink-0 w-[220px]">
+                <AssetCard
+                  asset={asset}
+                  compact
+                  onRefresh={() => handleRefreshAsset(asset.id)}
+                  onEdit={() => router.push(`/app/assets/${asset.id}/edit`)}
+                  onDelete={() => handleDeleteAsset(asset.id)}
+                />
+              </div>
             ))}
           </div>
         )}

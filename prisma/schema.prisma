@@ -43,7 +43,8 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  portfolioAccounts PortfolioAccount[]
+  portfolioAccounts   PortfolioAccount[]
+  userMarketAssets    UserMarketAsset[]  // NEW: Tracked market assets
 
   @@index([email])
 }
@@ -246,3 +247,66 @@ model WalletBalance {
   @@index([walletAddressId])
   @@index([assetId])
 }
+
+
+// Live Markets Models
+
+enum MarketAssetCategory {
+  INDEX
+  COMMODITY
+  CRYPTO
+  CURRENCY
+}
+
+model MarketAsset {
+  id          String              @id @default(cuid())
+  symbol      String              // e.g., "SPX", "GOLD", "BTC", "EURUSD"
+  name        String              // e.g., "S&P 500", "Gold", "Bitcoin", "EUR/USD"
+  category    MarketAssetCategory
+  exchange    String?             // e.g., "NYSE", "COMEX", "Binance"
+  currency    Currency            @default(USD)
+  isActive    Boolean             @default(true)
+  logoUrl     String?
+  createdAt   DateTime            @default(now())
+
+  // Relations
+  userAssets  UserMarketAsset[]
+  priceCache  MarketPriceCache?
+
+  @@unique([symbol, category])
+  @@index([category])
+  @@index([isActive])
+}
+
+model UserMarketAsset {
+  id            String      @id @default(cuid())
+  userId        String
+  assetId       String
+  displayOrder  Int         @default(0)
+  createdAt     DateTime    @default(now())
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset         MarketAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, assetId])
+  @@index([userId])
+  @@index([userId, displayOrder])
+}
+
+model MarketPriceCache {
+  id            String    @id @default(cuid())
+  assetId       String    @unique
+  price         Float
+  change        Float?    // Absolute change
+  changePercent Float?    // Percentage change
+  volume        Float?
+  high24h       Float?
+  low24h        Float?
+  lastUpdated   DateTime  @updatedAt
+  source        String?   // e.g., "yahoo", "binance", "coingecko"
+
+  asset         MarketAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([lastUpdated])
+}
+

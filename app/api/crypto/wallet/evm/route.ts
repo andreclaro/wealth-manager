@@ -2117,6 +2117,11 @@ const COINGECKO_MAPPINGS: Record<string, string> = {
   SAVAX: "benqi-liquid-staked-avax",
   GGAVAX: "gogopool-ggavax",
   STAVAX: "gogopool-ggavax",
+  PAXG: "pax-gold",
+  PYUSD: "paypal-usd",
+  USDE: "ethena-usde",
+  WEETH: "wrapped-eeth",
+  ENA: "ethena",
 };
 
 // Cache for prices to avoid repeated API calls
@@ -2134,8 +2139,6 @@ async function fetchTokenPrices(tokens: WalletToken[]): Promise<WalletToken[]> {
     .map((s) => COINGECKO_MAPPINGS[s])
     .filter(Boolean);
 
-  if (coinIds.length === 0) return tokens;
-
   // Check cache first
   const now = Date.now();
   const cachedPrices = new Map<string, number>();
@@ -2150,7 +2153,7 @@ async function fetchTokenPrices(tokens: WalletToken[]): Promise<WalletToken[]> {
     }
   }
 
-  // Fetch uncached prices
+  // Fetch uncached prices from CoinGecko
   if (uncachedIds.length > 0) {
     try {
       const idsParam = uncachedIds.join(",");
@@ -2174,7 +2177,7 @@ async function fetchTokenPrices(tokens: WalletToken[]): Promise<WalletToken[]> {
     }
   }
 
-  // Build symbol -> price map
+  // Build symbol -> price map from CoinGecko
   const symbolPrices = new Map<string, number>();
   for (const [symbol, coinId] of Object.entries(COINGECKO_MAPPINGS)) {
     const price = cachedPrices.get(coinId);
@@ -2183,8 +2186,8 @@ async function fetchTokenPrices(tokens: WalletToken[]): Promise<WalletToken[]> {
     }
   }
 
-  // Update tokens with prices
-  return tokens.map((token) => {
+  // Update tokens with CoinGecko prices
+  let updatedTokens = tokens.map((token) => {
     const price = symbolPrices.get(token.symbol.toUpperCase());
     if (price && !token.priceUsd) {
       return {
@@ -2196,4 +2199,82 @@ async function fetchTokenPrices(tokens: WalletToken[]): Promise<WalletToken[]> {
     }
     return token;
   });
+
+  // Fallback: Fetch prices from DexScreener for tokens without CoinGecko price
+  const tokensWithoutPrice = updatedTokens.filter((t) => !t.priceUsd && t.contractAddress && !t.contractAddress.startsWith("native:"));
+  if (tokensWithoutPrice.length > 0) {
+    try {
+      const dexScreenerPrices = await fetchDexScreenerPrices(tokensWithoutPrice);
+      updatedTokens = updatedTokens.map((token) => {
+        const dexPrice = dexScreenerPrices.get(token.contractAddress?.toLowerCase() || "");
+        if (dexPrice && !token.priceUsd) {
+          return {
+            ...token,
+            priceUsd: dexPrice,
+            valueUsd: token.balance * dexPrice,
+            priceSource: "dexscreener",
+          };
+        }
+        return token;
+      });
+    } catch (error) {
+      console.warn("[EVM Wallet] Failed to fetch DexScreener prices:", error);
+    }
+  }
+
+  return updatedTokens;
+}
+
+/**
+ * Fetch token prices from DexScreener as fallback
+ */
+async function fetchDexScreenerPrices(tokens: WalletToken[]): Promise<Map<string, number>> {
+  const prices = new Map<string, number>();
+  
+  // DexScreener supports Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche
+  const chainMapping: Record<string, string> = {
+    ethereum: "ethereum",
+    polygon: "polygon",
+    arbitrum: "arbitrum",
+    optimism: "optimism",
+    base: "base",
+    avalanche: "avalanche",
+    "avalanche-c": "avalanche",
+  };
+
+  for (const token of tokens) {
+    if (!token.contractAddress || !token.chain) continue;
+    
+    const dexChain = chainMapping[token.chain];
+    if (!dexChain) continue;
+
+    try {
+      const response = await fetch(
+        `https://api.dexscreener.com/token-pairs/v1/${dexChain}/${token.contractAddress}`,
+        { cache: "no-store" }
+      );
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      // DexScreener returns an array of pairs, pick the one with highest liquidity
+      const pairs = Array.isArray(data) ? data : [];
+      const bestPair = pairs.reduce((best: any, current: any) => {
+        const currentLiq = current?.liquidity?.usd || 0;
+        const bestLiq = best?.liquidity?.usd || 0;
+        return currentLiq > bestLiq ? current : best;
+      }, null);
+
+      if (bestPair?.priceUsd) {
+        const price = parseFloat(bestPair.priceUsd);
+        if (price > 0) {
+          prices.set(token.contractAddress.toLowerCase(), price);
+        }
+      }
+    } catch (error) {
+      // Silently fail for individual tokens
+    }
+  }
+
+  return prices;
 }

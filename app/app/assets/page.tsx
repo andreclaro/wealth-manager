@@ -63,6 +63,7 @@ export default function AssetsPage() {
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
   const [typeFilter, setTypeFilter] = useState<string>(searchParams.get("type") || "ALL");
   const [accountFilter, setAccountFilter] = useState<string>(searchParams.get("account") || "ALL");
+  const [hideNoValue, setHideNoValue] = useState<boolean>(searchParams.get("hideNoValue") === "true");
   
   // View mode from localStorage
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -102,10 +103,11 @@ export default function AssetsPage() {
     if (searchQuery) params.set("q", searchQuery);
     if (typeFilter !== "ALL") params.set("type", typeFilter);
     if (accountFilter !== "ALL") params.set("account", accountFilter);
+    if (hideNoValue) params.set("hideNoValue", "true");
     
     const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
     window.history.replaceState({}, "", newUrl);
-  }, [searchQuery, typeFilter, accountFilter, isHydrated]);
+  }, [searchQuery, typeFilter, accountFilter, hideNoValue, isHydrated]);
 
   // Handle view mode change with localStorage save
   const handleViewModeChange = useCallback((mode: ViewMode) => {
@@ -118,9 +120,10 @@ export default function AssetsPage() {
     setSearchQuery("");
     setTypeFilter("ALL");
     setAccountFilter("ALL");
+    setHideNoValue(false);
   }, []);
 
-  const hasActiveFilters = searchQuery || typeFilter !== "ALL" || accountFilter !== "ALL";
+  const hasActiveFilters = searchQuery || typeFilter !== "ALL" || accountFilter !== "ALL" || hideNoValue;
 
   const fetchAssets = async () => {
     try {
@@ -182,8 +185,13 @@ export default function AssetsPage() {
       filtered = filtered.filter((asset) => asset.accountId === accountFilter);
     }
 
+    // Hide assets without USD value (for crypto assets)
+    if (hideNoValue) {
+      filtered = filtered.filter((asset) => asset.totalValueUSD > 0);
+    }
+
     setFilteredAssets(filtered);
-  }, [searchQuery, typeFilter, accountFilter, assets]);
+  }, [searchQuery, typeFilter, accountFilter, hideNoValue, assets]);
 
   const handleAddAsset = async (data: AssetFormData) => {
     try {
@@ -379,6 +387,15 @@ export default function AssetsPage() {
             ))}
           </SelectContent>
         </Select>
+        <label className="flex items-center gap-2 px-3 py-2 border rounded-md bg-background cursor-pointer hover:bg-muted/50">
+          <input
+            type="checkbox"
+            checked={hideNoValue}
+            onChange={(e) => setHideNoValue(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300"
+          />
+          <span className="text-sm text-muted-foreground">Hide $0 value</span>
+        </label>
         <div className="flex items-center gap-2">
           {hasActiveFilters && (
             <Button

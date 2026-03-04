@@ -31,6 +31,7 @@ interface AssetCardProps {
   onEdit: () => void;
   onDelete: () => void;
   isRefreshing?: boolean;
+  compact?: boolean;
 }
 
 export function AssetCard({
@@ -39,6 +40,7 @@ export function AssetCard({
   onEdit,
   onDelete,
   isRefreshing = false,
+  compact = false,
 }: AssetCardProps) {
   const editUrl = `/app/assets/${asset.id}/edit`;
 
@@ -61,6 +63,76 @@ export function AssetCard({
   const gainLossPercent =
     hasPurchasePrice && purchaseValue > 0 ? (gainLoss / purchaseValue) * 100 : 0;
   const isProfitable = gainLoss >= 0;
+
+  if (compact) {
+    return (
+      <Card className="hover:shadow-md transition-shadow group h-full">
+        <CardContent className="p-3">
+          <div className="flex items-start justify-between gap-2">
+            <Link 
+              href={editUrl}
+              className="flex-1 min-w-0 hover:opacity-70 transition-opacity"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-sm truncate">{asset.symbol}</span>
+                <Badge
+                  variant="secondary"
+                  style={{
+                    backgroundColor: `${ASSET_TYPE_COLORS[asset.type]}20`,
+                    color: ASSET_TYPE_COLORS[asset.type],
+                  }}
+                  className="text-[10px] px-1 py-0"
+                >
+                  {ASSET_TYPE_LABELS[asset.type]}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground truncate">{asset.name}</p>
+            </Link>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1 -mt-1">
+                  <MoreHorizontal className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onEdit}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onRefresh} disabled={isRefreshing || asset.isManualPrice}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                  Refresh
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="mt-2">
+            <p className="text-base font-bold">{formatCurrency(asset.totalValueEUR, "EUR")}</p>
+            <p className="text-xs text-muted-foreground">{formatNumber(asset.quantity)} {asset.symbol}</p>
+          </div>
+
+          {hasPurchasePrice && (
+            <div className={`flex items-center gap-1 text-xs mt-1 ${isProfitable ? "text-green-600" : "text-red-600"}`}>
+              {isProfitable ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+              <span>{isProfitable ? "+" : ""}{gainLossPercent.toFixed(1)}%</span>
+            </div>
+          )}
+
+          {asset.account && (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-1.5">
+              <Building2 className="h-3 w-3" />
+              <span className="truncate">{asset.account.name}</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="hover:shadow-md transition-shadow group">
