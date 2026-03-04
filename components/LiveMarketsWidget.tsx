@@ -2,12 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+
 import {
   Dialog,
   DialogContent,
@@ -21,16 +16,13 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
+
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import {
-  TrendingUp,
-  TrendingDown,
   RefreshCw,
   Settings,
   Plus,
-  Minus,
   Activity,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -154,155 +146,118 @@ export function LiveMarketsWidget() {
     }
   };
 
-  const formatChange = (change: number | null, changePercent: number | null) => {
-    if (changePercent === null || changePercent === undefined) return "—";
-    const isPositive = changePercent >= 0;
-    return (
-      <span className={cn(
-        "flex items-center gap-0.5 text-xs font-medium",
-        isPositive ? "text-green-600" : "text-red-600"
-      )}>
-        {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-        {changePercent >= 0 ? "+" : ""}
-        {changePercent.toFixed(2)}%
-      </span>
-    );
-  };
-
   const filteredAssets = selectedCategory === "ALL" 
     ? availableAssets 
     : availableAssets.filter((a) => a.category === selectedCategory);
 
-  const trackedByCategory = trackedAssets.reduce((acc, item) => {
-    const cat = item.asset.category;
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(item);
-    return acc;
-  }, {} as Record<MarketAssetCategory, TrackedAsset[]>);
-
   if (isLoading) {
     return (
-      <Card className="wm-surface">
-        <CardContent className="py-3">
-          <div className="flex items-center gap-2">
-            <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Loading markets...</span>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex items-center gap-2 py-1.5 px-3 text-xs text-muted-foreground">
+        <Activity className="h-3 w-3" />
+        Loading...
+      </div>
     );
   }
 
   return (
-    <Card className="wm-surface">
-      <CardHeader className="py-1.5 px-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-xs font-medium flex items-center gap-1.5 text-muted-foreground">
-            <Activity className="h-3 w-3" />
-            Markets
-          </CardTitle>
-          <div className="flex items-center gap-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-            >
-              <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
-            </Button>
-            <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
-              <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6">
-                  <Settings className="h-3 w-3" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[80vh]">
-                <DialogHeader>
-                  <DialogTitle>Select Assets to Track</DialogTitle>
-                </DialogHeader>
-                
-                <Tabs defaultValue="ALL" onValueChange={(v) => setSelectedCategory(v as any)}>
-                  <TabsList className="grid grid-cols-5">
-                    <TabsTrigger value="ALL">All</TabsTrigger>
-                    {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                      <TabsTrigger key={key} value={key}>
-                        {CATEGORY_ICONS[key as MarketAssetCategory]} {label}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                  
-                  <ScrollArea className="h-[400px] mt-4">
-                    <div className="space-y-2">
-                      {filteredAssets.map((asset) => (
-                        <div
-                          key={asset.id}
-                          className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="text-lg">
-                              {CATEGORY_ICONS[asset.category]}
-                            </span>
-                            <div>
-                              <p className="font-medium text-sm">{asset.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {asset.symbol} • {asset.exchange || "N/A"}
-                              </p>
-                            </div>
-                          </div>
-                          <Switch
-                            checked={asset.isTracked}
-                            onCheckedChange={() => handleToggleAsset(asset.id, asset.isTracked)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </Tabs>
-              </DialogContent>
-            </Dialog>
-          </div>
+    <div className="flex items-center gap-2 py-1.5 px-3 bg-card border rounded-md overflow-hidden">
+      <span className="text-xs font-medium text-muted-foreground flex items-center gap-1 shrink-0">
+        <Activity className="h-3 w-3" />
+        Markets
+      </span>
+      
+      {trackedAssets.length === 0 ? (
+        <Button variant="ghost" size="sm" className="h-5 text-[10px] px-2 shrink-0" onClick={() => setIsConfigOpen(true)}>
+          <Plus className="h-3 w-3 mr-1" />
+          Add
+        </Button>
+      ) : (
+        <div className="flex gap-2 overflow-x-auto scrollbar-none">
+          {trackedAssets.map((item) => (
+            <span key={item.id} className="text-xs whitespace-nowrap">
+              <span className="font-medium">{item.asset.symbol}</span>
+              {item.asset.priceCache ? (
+                <>
+                  <span className="ml-1 text-muted-foreground">
+                    {formatCurrency(item.asset.priceCache.price, item.asset.currency as any, { decimals: 0 })}
+                  </span>
+                  <span className={cn(
+                    "ml-1 text-[10px]",
+                    (item.asset.priceCache.changePercent || 0) >= 0 ? "text-green-600" : "text-red-600"
+                  )}>
+                    {(item.asset.priceCache.changePercent || 0) >= 0 ? "▲" : "▼"}
+                    {Math.abs(item.asset.priceCache.changePercent || 0).toFixed(1)}%
+                  </span>
+                </>
+              ) : (
+                <span className="ml-1 text-muted-foreground">—</span>
+              )}
+            </span>
+          ))}
         </div>
-      </CardHeader>
-
-      <CardContent className="py-1 px-3">
-        {trackedAssets.length === 0 ? (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">No assets tracked</span>
-            <Button variant="ghost" size="sm" className="h-5 text-[10px] px-2" onClick={() => setIsConfigOpen(true)}>
-              <Plus className="h-3 w-3 mr-1" />
-              Add
+      )}
+      
+      <div className="flex items-center gap-0.5 shrink-0 ml-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+        >
+          <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
+        </Button>
+        <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
+          <DialogTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-5 w-5">
+              <Settings className="h-3 w-3" />
             </Button>
-          </div>
-        ) : (
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-thin">
-            {trackedAssets.map((item) => (
-              <div
-                key={item.id}
-                className="flex-shrink-0 px-2 py-1 rounded border bg-card hover:bg-muted/50 transition-colors text-xs"
-              >
-                <span className="font-medium">{item.asset.symbol}</span>
-                {item.asset.priceCache ? (
-                  <>
-                    <span className="ml-1.5">
-                      {formatCurrency(item.asset.priceCache.price, item.asset.currency as any, { decimals: 2 })}
-                    </span>
-                    <span className={cn(
-                      "ml-1",
-                      (item.asset.priceCache.changePercent || 0) >= 0 ? "text-green-600" : "text-red-600"
-                    )}>
-                      {(item.asset.priceCache.changePercent || 0) >= 0 ? "+" : ""}
-                      {(item.asset.priceCache.changePercent || 0).toFixed(2)}%
-                    </span>
-                  </>
-                ) : (
-                  <span className="ml-1.5 text-muted-foreground">—</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Select Assets to Track</DialogTitle>
+            </DialogHeader>
+            
+            <Tabs defaultValue="ALL" onValueChange={(v) => setSelectedCategory(v as any)}>
+              <TabsList className="grid grid-cols-5">
+                <TabsTrigger value="ALL">All</TabsTrigger>
+                {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                  <TabsTrigger key={key} value={key}>
+                    {CATEGORY_ICONS[key as MarketAssetCategory]} {label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              
+              <ScrollArea className="h-[400px] mt-4">
+                <div className="space-y-2">
+                  {filteredAssets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg">
+                          {CATEGORY_ICONS[asset.category]}
+                        </span>
+                        <div>
+                          <p className="font-medium text-sm">{asset.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {asset.symbol} • {asset.exchange || "N/A"}
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={asset.isTracked}
+                        onCheckedChange={() => handleToggleAsset(asset.id, asset.isTracked)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </Tabs>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
   );
 }
