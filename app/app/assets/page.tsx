@@ -311,13 +311,22 @@ export default function AssetsPage() {
             {accountTotals.map((account) => (
               <Card 
                 key={account.id} 
-                className={`wm-soft-hover wm-surface cursor-pointer transition-colors flex-shrink-0 w-[180px] ${accountFilter === account.id ? 'border-foreground/35 bg-foreground/5' : 'hover:bg-muted/50'}`}
+                className={`wm-soft-hover wm-surface cursor-pointer transition-all flex-shrink-0 w-[180px] ${
+                  accountFilter === account.id 
+                    ? 'ring-2 ring-primary border-primary bg-primary/10 shadow-md' 
+                    : 'hover:bg-muted/50 border-transparent'
+                }`}
                 onClick={() => setAccountFilter(accountFilter === account.id ? "ALL" : account.id)}
               >
                 <CardContent className="p-3">
                   <div className="flex items-center gap-1.5 mb-1.5">
-                    <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                    <span className="font-medium text-sm truncate">{account.name}</span>
+                    <Building2 className={`h-3.5 w-3.5 flex-shrink-0 ${accountFilter === account.id ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <span className={`font-medium text-sm truncate ${accountFilter === account.id ? 'text-primary' : ''}`}>
+                      {account.name}
+                    </span>
+                    {accountFilter === account.id && (
+                      <span className="ml-auto text-[10px] font-semibold text-primary uppercase tracking-wide">Selected</span>
+                    )}
                   </div>
                   <div className="text-base font-bold">
                     {formatCurrency(account.totalValueEUR, "EUR")}
