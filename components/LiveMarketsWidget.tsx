@@ -282,7 +282,7 @@ export function LiveMarketsWidget() {
             </Button>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {Object.entries(trackedByCategory).map(([category, items]) => (
               <div key={category}>
                 <h4 className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
@@ -292,36 +292,34 @@ export function LiveMarketsWidget() {
                     {items.length}
                   </Badge>
                 </h4>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
                   {items.map((item) => (
                     <div
                       key={item.id}
-                      className="p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                      className="flex-shrink-0 w-[160px] p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors group relative"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="min-w-0">
-                          <p className="font-medium text-sm truncate">
-                            {item.asset.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.asset.symbol}
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5 -mr-1 -mt-1 opacity-0 group-hover:opacity-100"
-                          onClick={() => handleToggleAsset(item.asset.id, true)}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 absolute top-1 right-1 opacity-0 group-hover:opacity-100"
+                        onClick={() => handleToggleAsset(item.asset.id, true)}
+                      >
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      <div className="min-w-0 pr-5">
+                        <p className="font-medium text-sm truncate">
+                          {item.asset.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.asset.symbol}
+                        </p>
                       </div>
                       
                       {item.asset.priceCache ? (
                         <div className="mt-2">
                           <p className="text-lg font-semibold">
                             {formatCurrency(item.asset.priceCache.price, item.asset.currency as any, {
-                              decimals: item.asset.category === "CRYPTO" ? 2 : 2,
+                              decimals: 2,
                             })}
                           </p>
                           {formatChange(
@@ -330,9 +328,10 @@ export function LiveMarketsWidget() {
                           )}
                         </div>
                       ) : (
-                        <p className="text-sm text-muted-foreground mt-2">
-                          No price data
-                        </p>
+                        <div className="mt-2">
+                          <p className="text-sm text-muted-foreground">Loading...</p>
+                          <p className="text-[10px] text-muted-foreground">Click refresh</p>
+                        </div>
                       )}
                     </div>
                   ))}

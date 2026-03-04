@@ -2,12 +2,38 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/api";
 
+// Symbol mapping for Yahoo Finance compatibility
+function mapToYahooSymbol(symbol: string): string {
+  const mapping: Record<string, string> = {
+    // Indexes
+    "SPX": "^GSPC",
+    "IXIC": "^IXIC",
+    "DJI": "^DJI",
+    "FTSE": "^FTSE",
+    "DAX": "^GDAXI",
+    "N225": "^N225",
+    "HSI": "^HSI",
+    "STOXX50E": "^STOXX50E",
+    // Commodities (futures)
+    "GC=F": "GC=F",
+    "SI=F": "SI=F",
+    "CL=F": "CL=F",
+    "BZ=F": "BZ=F",
+    "NG=F": "NG=F",
+    "PL=F": "PL=F",
+    "PA=F": "PA=F",
+    "HG=F": "HG=F",
+  };
+  return mapping[symbol.toUpperCase()] || symbol;
+}
+
 // Price fetchers for different asset types
 async function fetchYahooPrice(symbol: string): Promise<Partial<MarketPriceData> | null> {
   try {
+    const yahooSymbol = mapToYahooSymbol(symbol);
     // Use Yahoo Finance API (free, no key required for basic data)
     const response = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1d`,
       { next: { revalidate: 60 } }
     );
 

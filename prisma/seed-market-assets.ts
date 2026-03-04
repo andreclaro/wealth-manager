@@ -2,15 +2,15 @@ import { MarketAssetCategory, Currency } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
 const DEFAULT_MARKET_ASSETS = [
-  // Indexes
-  { symbol: "SPX", name: "S&P 500", category: MarketAssetCategory.INDEX, exchange: "NYSE", currency: Currency.USD },
-  { symbol: "IXIC", name: "NASDAQ Composite", category: MarketAssetCategory.INDEX, exchange: "NASDAQ", currency: Currency.USD },
-  { symbol: "DJI", name: "Dow Jones Industrial", category: MarketAssetCategory.INDEX, exchange: "NYSE", currency: Currency.USD },
-  { symbol: "FTSE", name: "FTSE 100", category: MarketAssetCategory.INDEX, exchange: "LSE", currency: Currency.GBP },
-  { symbol: "DAX", name: "DAX 40", category: MarketAssetCategory.INDEX, exchange: "XETRA", currency: Currency.EUR },
-  { symbol: "N225", name: "Nikkei 225", category: MarketAssetCategory.INDEX, exchange: "TSE", currency: Currency.JPY },
-  { symbol: "HSI", name: "Hang Seng Index", category: MarketAssetCategory.INDEX, exchange: "HKEX", currency: Currency.USD },
-  { symbol: "STOXX50E", name: "EURO STOXX 50", category: MarketAssetCategory.INDEX, exchange: "EUREX", currency: Currency.EUR },
+  // Indexes - Using Yahoo Finance compatible symbols
+  { symbol: "^GSPC", name: "S&P 500", category: MarketAssetCategory.INDEX, exchange: "NYSE", currency: Currency.USD },
+  { symbol: "^IXIC", name: "NASDAQ Composite", category: MarketAssetCategory.INDEX, exchange: "NASDAQ", currency: Currency.USD },
+  { symbol: "^DJI", name: "Dow Jones Industrial", category: MarketAssetCategory.INDEX, exchange: "NYSE", currency: Currency.USD },
+  { symbol: "^FTSE", name: "FTSE 100", category: MarketAssetCategory.INDEX, exchange: "LSE", currency: Currency.GBP },
+  { symbol: "^GDAXI", name: "DAX 40", category: MarketAssetCategory.INDEX, exchange: "XETRA", currency: Currency.EUR },
+  { symbol: "^N225", name: "Nikkei 225", category: MarketAssetCategory.INDEX, exchange: "TSE", currency: Currency.JPY },
+  { symbol: "^HSI", name: "Hang Seng Index", category: MarketAssetCategory.INDEX, exchange: "HKEX", currency: Currency.USD },
+  { symbol: "^STOXX50E", name: "EURO STOXX 50", category: MarketAssetCategory.INDEX, exchange: "EUREX", currency: Currency.EUR },
   
   // Commodities
   { symbol: "GC=F", name: "Gold", category: MarketAssetCategory.COMMODITY, exchange: "COMEX", currency: Currency.USD },

@@ -185,13 +185,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Live Markets & Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
-          <LiveMarketsWidget />
-        </div>
-        <div className="lg:col-span-2">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Live Markets Widget - Full Width */}
+      <LiveMarketsWidget />
+
+      {/* Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="wm-surface wm-soft-hover">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
@@ -241,8 +239,6 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
-          </div>
-        </div>
       </div>
 
       {/* Charts */}
