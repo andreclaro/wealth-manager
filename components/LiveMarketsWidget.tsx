@@ -195,10 +195,10 @@ export function LiveMarketsWidget() {
 
   return (
     <Card className="wm-surface">
-      <CardHeader className="py-2 px-4">
+      <CardHeader className="py-1.5 px-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-            <Activity className="h-3.5 w-3.5" />
+          <CardTitle className="text-xs font-medium flex items-center gap-1.5 text-muted-foreground">
+            <Activity className="h-3 w-3" />
             Markets
           </CardTitle>
           <div className="flex items-center gap-0.5">
@@ -265,41 +265,39 @@ export function LiveMarketsWidget() {
         </div>
       </CardHeader>
 
-      <CardContent className="py-2 px-4">
+      <CardContent className="py-1 px-3">
         {trackedAssets.length === 0 ? (
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">No assets tracked</span>
-            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setIsConfigOpen(true)}>
+            <span className="text-xs text-muted-foreground">No assets tracked</span>
+            <Button variant="ghost" size="sm" className="h-5 text-[10px] px-2" onClick={() => setIsConfigOpen(true)}>
               <Plus className="h-3 w-3 mr-1" />
               Add
             </Button>
           </div>
         ) : (
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-thin">
             {trackedAssets.map((item) => (
               <div
                 key={item.id}
-                className="flex-shrink-0 px-3 py-2 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                className="flex-shrink-0 px-2 py-1 rounded border bg-card hover:bg-muted/50 transition-colors text-xs"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{item.asset.symbol}</span>
-                  {item.asset.priceCache ? (
-                    <>
-                      <span className="text-sm">
-                        {formatCurrency(item.asset.priceCache.price, item.asset.currency as any, { decimals: 2 })}
-                      </span>
-                      <span className={cn(
-                        "text-xs",
-                        (item.asset.priceCache.changePercent || 0) >= 0 ? "text-green-600" : "text-red-600"
-                      )}>
-                        {(item.asset.priceCache.changePercent || 0) >= 0 ? "+" : ""}
-                        {(item.asset.priceCache.changePercent || 0).toFixed(2)}%
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </div>
+                <span className="font-medium">{item.asset.symbol}</span>
+                {item.asset.priceCache ? (
+                  <>
+                    <span className="ml-1.5">
+                      {formatCurrency(item.asset.priceCache.price, item.asset.currency as any, { decimals: 2 })}
+                    </span>
+                    <span className={cn(
+                      "ml-1",
+                      (item.asset.priceCache.changePercent || 0) >= 0 ? "text-green-600" : "text-red-600"
+                    )}>
+                      {(item.asset.priceCache.changePercent || 0) >= 0 ? "+" : ""}
+                      {(item.asset.priceCache.changePercent || 0).toFixed(2)}%
+                    </span>
+                  </>
+                ) : (
+                  <span className="ml-1.5 text-muted-foreground">—</span>
+                )}
               </div>
             ))}
           </div>
